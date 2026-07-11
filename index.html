@@ -818,7 +818,7 @@ function bindEvents(){
     try{
       const base64 = await readFileAsBase64(file);
       STATE.recState.audioBase64 = base64;
-      STATE.recState.audioMime = file.type || 'audio/mpeg';
+      STATE.recState.audioMime = resolveAudioMime(file);
       render();
       if(STATE.aiSharedKey){
         analyzeAudioWithAI();
@@ -939,13 +939,50 @@ function readFileAsBase64(file){
   });
 }
 
+function resolveAudioMime(file){
+  const name = (file.name||'').toLowerCase();
+  const ext = name.includes('.') ? name.split('.').pop() : '';
+  const extMap = {
+    m4a:'audio/m4a', mp3:'audio/mp3', wav:'audio/wav', aac:'audio/aac',
+    ogg:'audio/ogg', oga:'audio/ogg', flac:'audio/flac', webm:'audio/webm',
+    mp4:'audio/mp4', mpga:'audio/mpga', mpeg:'audio/mpeg', mpa:'audio/m4a', aiff:'audio/aiff'
+  };
+  if(extMap[ext]) return extMap[ext];
+  if(file.type && file.type.startsWith('audio/')) return file.type;
+  return 'audio/mp4';
+}
+
+async function callGeminiAPI(key, parts, attempt){
+  attempt = attempt || 1;
+  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts }] })
+  });
+  let data;
+  try{ data = await res.json(); }catch(e){ throw new Error('서버 응답을 읽을 수 없습니다.'); }
+  if(data.error){
+    const msg = data.error.message || 'API 오류';
+    const overloaded = res.status===503 || /overloaded|high demand|unavailable/i.test(msg);
+    if(overloaded && attempt<4){
+      await new Promise(r=>setTimeout(r, attempt*1500));
+      return callGeminiAPI(key, parts, attempt+1);
+    }
+    throw new Error(msg);
+  }
+  const cand = (data.candidates||[])[0];
+  const textPart = cand && cand.content && cand.content.parts && cand.content.parts[0];
+  if(!textPart || !textPart.text){ throw new Error('AI 응답을 읽을 수 없습니다.'); }
+  return textPart.text;
+}
+
 async function analyzeAudioWithAI(){
   const key = (STATE.aiSharedKey||'').trim();
   if(!key){ alert('관리자가 아직 AI 연동을 설정하지 않았어요.'); return; }
   if(!STATE.recState.audioBase64){ alert('업로드된 녹음 파일이 없습니다.'); return; }
 
   STATE.aiAnalyzing = true;
-  STATE.aiNote = '';
+  STATE.aiNote = '재시도 포함 최대 몇 초 걸릴 수 있어요...';
   render();
 
   const prompt = `오늘 날짜는 ${todayStr()}입니다. 첨부된 오디오는 보험/금융 상담원이 고객과 나눈 전화 통화 녹음입니다.
@@ -957,22 +994,11 @@ async function analyzeAudioWithAI(){
 {"transcript": "받아적은 통화 전체 내용", "outcome": "visit_confirmed | callback | declined 중 하나", "visitDate": "내방 예정일이 있으면 YYYY-MM-DD, 없으면 null", "reason": "판단 근거를 한 문장으로 요약"}`;
 
   try{
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [
-          { text: prompt },
-          { inline_data: { mime_type: STATE.recState.audioMime || 'audio/mpeg', data: STATE.recState.audioBase64 } }
-        ] }]
-      })
-    });
-    const data = await res.json();
-    if(data.error){ throw new Error(data.error.message || 'API 오류'); }
-    const cand = (data.candidates||[])[0];
-    const textPart = cand && cand.content && cand.content.parts && cand.content.parts[0];
-    if(!textPart || !textPart.text){ throw new Error('AI 응답을 읽을 수 없습니다.'); }
-    let raw = textPart.text.trim();
+    const text = await callGeminiAPI(key, [
+      { text: prompt },
+      { inline_data: { mime_type: STATE.recState.audioMime || 'audio/mp4', data: STATE.recState.audioBase64 } }
+    ]);
+    let raw = text.trim();
     raw = raw.replace(/^```json\s*|^```\s*|```$/g, '').trim();
     const parsed = JSON.parse(raw);
 
@@ -985,7 +1011,7 @@ async function analyzeAudioWithAI(){
     }
     STATE.aiNote = 'AI 분석 결과: ' + (parsed.reason || '분석 완료') + ' (텍스트와 결과는 저장 전에 꼭 확인해주세요)';
   }catch(e){
-    STATE.aiNote = 'AI 분석 실패: ' + e.message + ' (파일 형식이나 크기를 확인해주세요)';
+    STATE.aiNote = 'AI 분석 실패: ' + e.message + ' (잠시 후 "다시 분석하기"를 눌러 재시도해보세요)';
   }finally{
     STATE.aiAnalyzing = false;
     render();
@@ -1014,19 +1040,8 @@ ${transcript}
 """`;
 
   try{
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }]
-      })
-    });
-    const data = await res.json();
-    if(data.error){ throw new Error(data.error.message || 'API 오류'); }
-    const cand = (data.candidates||[])[0];
-    const textPart = cand && cand.content && cand.content.parts && cand.content.parts[0];
-    if(!textPart || !textPart.text){ throw new Error('AI 응답을 읽을 수 없습니다.'); }
-    let raw = textPart.text.trim();
+    const text = await callGeminiAPI(key, [{ text: prompt }]);
+    let raw = text.trim();
     raw = raw.replace(/^```json\s*|^```\s*|```$/g, '').trim();
     const parsed = JSON.parse(raw);
 
