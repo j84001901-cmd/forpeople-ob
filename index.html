@@ -14,6 +14,9 @@
     --amber-light:#fbf1de;
     --rose:#C1524B;
     --rose-light:#fbe9e8;
+    --indigo:#5B5FC7;
+    --olive:#8C7A3B;
+    --slate:#57606f;
     --bg:#F3F5F8;
     --card:#FFFFFF;
     --line:#E4E8EE;
@@ -167,6 +170,9 @@
   .cal-entry.team-b{background:var(--navy-2);}
   .cal-entry.team-c{background:var(--amber);color:#3a2c05;}
   .cal-entry.team-d{background:var(--rose);}
+  .cal-entry.team-e{background:var(--indigo);}
+  .cal-entry.team-f{background:var(--slate);}
+  .cal-entry.team-g{background:var(--olive);}
 
   .modal-bg{
     position:fixed;inset:0;background:rgba(15,20,35,0.5);display:flex;align-items:center;justify-content:center;
@@ -194,6 +200,12 @@
 
   .key-note{font-size:12px;color:var(--ink-muted);background:#FAFBFC;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:14px;line-height:1.6;}
   .footnote{font-size:11.5px;color:var(--ink-muted);margin-top:6px;}
+  .today-banner{
+    display:flex;align-items:center;gap:10px;background:linear-gradient(90deg,#fff4e0,#fff9ef);
+    border:1px solid var(--amber);border-radius:12px;padding:14px 18px;margin-bottom:18px;
+    font-size:14px;font-weight:700;color:#8a6417;
+  }
+  .today-banner .icon{font-size:20px;}
 </style>
 </head>
 <body>
@@ -264,10 +276,23 @@ async function saveSession(userId){
 function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
 
 const GOAL = 200;
-const TEAMS = ['1팀','2팀','3팀','4팀'];
+const GROUPS = {
+  '천안그룹': ['모산팀','이마트팀','광혜당팀','쌍용팀','온천팀','성정팀','불당팀','오성팀','신부팀'],
+  '서해안그룹': ['호수팀','남산팀','터미널팀','서산팀','당진팀','태안팀','광장팀','동부팀','문예팀'],
+  '평택그룹': ['평택팀','장당팀','삼거리팀','비전팀','오거리팀','성환팀'],
+  '대전그룹': ['시장팀','조치원팀','태평팀','신관팀','대동팀'],
+  '전북그룹': ['호성팀','서신팀','제일팀','미룡팀','송천팀'],
+  '충북그룹': ['충의팀','하소팀','내토팀'],
+  '제주그룹': ['화인팀','노형팀','이도팀','아라팀','천지팀'],
+};
+const GROUP_NAMES = Object.keys(GROUPS);
+function teamGroup(team){
+  return GROUP_NAMES.find(g=>GROUPS[g].includes(team)) || null;
+}
 const teamClass = (team)=>{
-  const idx = TEAMS.indexOf(team);
-  return ['','team-b','team-c','team-d'][idx] || '';
+  const g = teamGroup(team);
+  const idx = GROUP_NAMES.indexOf(g);
+  return ['','team-b','team-c','team-d','team-e','team-f','team-g'][idx] || '';
 };
 
 /* ---------- global state ---------- */
@@ -281,6 +306,9 @@ let STATE = {
   calMonthOffset: 0,
   modalCallId: null,
   recState: { recording:false, seconds:0, transcript:'', timerHandle:null, recognition:null, outcome:'visit_confirmed', visitDate:'' },
+  aiApiKey: '',
+  aiAnalyzing: false,
+  aiNote: '',
 };
 
 async function init(){
@@ -348,8 +376,10 @@ function renderSignup(){
     <form id="signupForm">
       <label>이름</label>
       <input type="text" id="suName" placeholder="이름" required>
+      <label>소속 그룹</label>
+      <select id="suGroup" required>${GROUP_NAMES.map(g=>`<option value="${g}">${g}</option>`).join('')}</select>
       <label>소속팀</label>
-      <select id="suTeam" required>${TEAMS.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
+      <select id="suTeam" required>${GROUPS[GROUP_NAMES[0]].map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
       <label>연락처</label>
       <input type="tel" id="suPhone" placeholder="010-0000-0000" required>
       <label>비밀번호</label>
@@ -438,7 +468,14 @@ function renderAdminOverview(){
   const totalCalls = STATE.calls.length;
   const totalVisits = STATE.calls.filter(c=>c.outcome==='visit_confirmed').length;
   const converted = trainees.filter(t=>(t.callCount||0)>=GOAL).length;
+  const today = todayStr();
+  const todaysCalls = STATE.calls.filter(c=>c.outcome==='visit_confirmed' && c.visitDate===today);
   return `
+  ${todaysCalls.length>0 ? `
+  <div class="today-banner">
+    <span class="icon">🔔</span>
+    <span>오늘(${today}) 전체 내방 예정 <b>${todaysCalls.length}건</b> — ${[...new Set(todaysCalls.map(c=>c.userName+' · '+c.team))].join(', ')}</span>
+  </div>` : ''}
   <div class="card">
     <h2>전체 현황</h2>
     <div class="sub">전환 기준: <b>내방콜 200건</b> 달성 시 수습 → 컨설턴트 전환</div>
@@ -482,8 +519,14 @@ function renderTrainee(u){
   const dash = c*pct/100;
   const done = cnt>=GOAL;
   const rs = STATE.recState;
+  const todaysVisits = STATE.calls.filter(c=>c.userId===u.id && c.outcome==='visit_confirmed' && c.visitDate===todayStr());
 
   return `
+  ${todaysVisits.length>0 ? `
+  <div class="today-banner">
+    <span class="icon">🔔</span>
+    <span>오늘(${todayStr()}) 내방 예정 고객이 <b>${todaysVisits.length}건</b> 있습니다. 미리 준비하고 케어해주세요!</span>
+  </div>` : ''}
   <div class="grid2">
     <div class="card">
       <h2>전환 진행률</h2>
@@ -516,6 +559,16 @@ function renderTrainee(u){
       </div>
       <label>녹취 텍스트 (직접 수정 가능)</label>
       <textarea id="transcriptEdit" placeholder="통화 내용을 입력하거나 위 녹음으로 자동 변환하세요">${escapeHtml(rs.transcript)}</textarea>
+
+      <div class="rec-box" style="margin-top:10px;">
+        <label style="margin-top:0;">🤖 AI 자동 분석 (선택)</label>
+        <input type="password" id="aiKeyInput" placeholder="Gemini API 키 (aistudio.google.com에서 무료 발급)" value="${escapeHtml(STATE.aiApiKey)}">
+        <div class="btn-row" style="margin-top:8px;">
+          <button class="btn ghost sm" id="aiAnalyzeBtn" ${STATE.aiAnalyzing? 'disabled':''}>${STATE.aiAnalyzing? '분석 중...' : '통화내용 AI로 분석하기'}</button>
+        </div>
+        ${STATE.aiNote ? `<div class="notice info" style="margin-top:10px;margin-bottom:0;">${escapeHtml(STATE.aiNote)}</div>` : ''}
+        <div class="footnote">API 키는 브라우저 메모리에만 유지되고 서버에 저장되지 않아요. 새로고침하면 다시 입력해야 해요.</div>
+      </div>
 
       <label>통화 결과</label>
       <div class="pill-row">
@@ -551,6 +604,10 @@ function renderTrainee(u){
   </div>`;
 }
 
+function todayStr(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 function outcomeBadge(o){
   if(o==='visit_confirmed') return '<span class="badge visit">내방 확정</span>';
   if(o==='callback') return '<span class="badge callback">재통화 필요</span>';
@@ -642,6 +699,16 @@ function bindEvents(){
   const goLogin = document.getElementById('goLogin');
   if(goLogin) goLogin.onclick = ()=>{ STATE.view='login'; STATE.authError=''; render(); };
 
+  const suGroupEl = document.getElementById('suGroup');
+  if(suGroupEl){
+    suGroupEl.onchange = (e)=>{
+      const teamSel = document.getElementById('suTeam');
+      if(teamSel){
+        teamSel.innerHTML = GROUPS[e.target.value].map(t=>`<option value="${t}">${t}</option>`).join('');
+      }
+    };
+  }
+
   const loginForm = document.getElementById('loginForm');
   if(loginForm) loginForm.onsubmit = async (e)=>{
     e.preventDefault();
@@ -707,6 +774,11 @@ function bindEvents(){
   const transcriptEdit = document.getElementById('transcriptEdit');
   if(transcriptEdit) transcriptEdit.oninput = (e)=>{ STATE.recState.transcript = e.target.value; };
 
+  const aiKeyInput = document.getElementById('aiKeyInput');
+  if(aiKeyInput) aiKeyInput.oninput = (e)=>{ STATE.aiApiKey = e.target.value; };
+  const aiAnalyzeBtn = document.getElementById('aiAnalyzeBtn');
+  if(aiAnalyzeBtn) aiAnalyzeBtn.onclick = analyzeTranscriptWithAI;
+
   app.querySelectorAll('[data-outcome]').forEach(p=>{
     p.onclick = ()=>{ STATE.recState.outcome = p.getAttribute('data-outcome'); render(); };
   });
@@ -732,12 +804,14 @@ function bindEvents(){
     u.callCount = (u.callCount||0)+1;
     await saveUsers(STATE.users);
     STATE.recState = { recording:false, seconds:0, transcript:'', timerHandle:null, recognition:null, outcome:'visit_confirmed', visitDate:'' };
+    STATE.aiNote = '';
     render();
   };
   const clearCallBtn = document.getElementById('clearCallBtn');
   if(clearCallBtn) clearCallBtn.onclick = ()=>{
     stopRecording();
     STATE.recState = { recording:false, seconds:0, transcript:'', timerHandle:null, recognition:null, outcome:'visit_confirmed', visitDate:'' };
+    STATE.aiNote = '';
     render();
   };
 
@@ -835,6 +909,59 @@ function stopRecording(){
     STATE.recState.recognition = null;
   }
   render();
+}
+
+/* ================= AI TRANSCRIPT ANALYSIS ================= */
+async function analyzeTranscriptWithAI(){
+  const key = (STATE.aiApiKey||'').trim();
+  const transcript = (STATE.recState.transcript||'').trim();
+  if(!key){ alert('Gemini API 키를 입력해주세요.'); return; }
+  if(!transcript){ alert('분석할 통화 텍스트가 없습니다. 녹음하거나 직접 입력해주세요.'); return; }
+
+  STATE.aiAnalyzing = true;
+  STATE.aiNote = '';
+  render();
+
+  const prompt = `오늘 날짜는 ${todayStr()}입니다. 아래는 보험/금융 상담원이 고객과 나눈 전화 통화의 녹취 텍스트입니다.
+이 내용을 분석해서 아래 JSON 형식으로만 답변하세요. 다른 설명, 마크다운, 코드블록 없이 순수 JSON 한 줄만 출력하세요.
+
+{"outcome": "visit_confirmed | callback | declined 중 하나", "visitDate": "내방 예정일이 있으면 YYYY-MM-DD, 없으면 null", "reason": "판단 근거를 한 문장으로 요약"}
+
+통화 내용:
+"""
+${transcript}
+"""`;
+
+  try{
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(key), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }]
+      })
+    });
+    const data = await res.json();
+    if(data.error){ throw new Error(data.error.message || 'API 오류'); }
+    const cand = (data.candidates||[])[0];
+    const textPart = cand && cand.content && cand.content.parts && cand.content.parts[0];
+    if(!textPart || !textPart.text){ throw new Error('AI 응답을 읽을 수 없습니다.'); }
+    let raw = textPart.text.trim();
+    raw = raw.replace(/^```json\s*|^```\s*|```$/g, '').trim();
+    const parsed = JSON.parse(raw);
+
+    if(['visit_confirmed','callback','declined'].includes(parsed.outcome)){
+      STATE.recState.outcome = parsed.outcome;
+    }
+    if(parsed.visitDate && /^\d{4}-\d{2}-\d{2}$/.test(parsed.visitDate)){
+      STATE.recState.visitDate = parsed.visitDate;
+    }
+    STATE.aiNote = 'AI 분석 결과: ' + (parsed.reason || '분석 완료') + ' (결과와 날짜는 저장 전에 꼭 확인해주세요)';
+  }catch(e){
+    STATE.aiNote = 'AI 분석 실패: ' + e.message + ' (API 키를 확인해주세요)';
+  }finally{
+    STATE.aiAnalyzing = false;
+    render();
+  }
 }
 
 init();
