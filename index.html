@@ -206,12 +206,12 @@
    Supabase 대시보드 > Project Settings > API 에서 확인 가능합니다. */
 const SUPABASE_URL = 'https://bmkfqdznnyoidsfwyfhl.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_MVuWLSUX_Vqv9D0f25VSZw_ChDXQLh3';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ---------- storage helpers (Supabase 기반) ---------- */
 async function loadUsers(){
   try{
-    const { data, error } = await supabase.from('pp_users').select('*');
+    const { data, error } = await supabaseClient.from('pp_users').select('*');
     if(error) throw error;
     return (data||[]).map(r=>({
       id:r.id, name:r.name, team:r.team, phone:r.phone, password:r.password,
@@ -225,13 +225,13 @@ async function saveUsers(list){
       id:u.id, name:u.name, team:u.team, phone:u.phone, password:u.password,
       role:u.role, status:u.status, joined_at:u.joinedAt, call_count:u.callCount||0
     }));
-    const { error } = await supabase.from('pp_users').upsert(rows, { onConflict:'id' });
+    const { error } = await supabaseClient.from('pp_users').upsert(rows, { onConflict:'id' });
     if(error) throw error;
   }catch(e){ console.error('saveUsers error', e); }
 }
 async function loadCalls(){
   try{
-    const { data, error } = await supabase.from('pp_calls').select('*');
+    const { data, error } = await supabaseClient.from('pp_calls').select('*');
     if(error) throw error;
     return (data||[]).map(r=>({
       id:r.id, userId:r.user_id, userName:r.user_name, team:r.team,
@@ -247,7 +247,7 @@ async function saveCalls(list){
       created_at:c.createdAt, transcript:c.transcript,
       outcome:c.outcome, visit_date:c.visitDate, feedback:c.feedback||[]
     }));
-    const { error } = await supabase.from('pp_calls').upsert(rows, { onConflict:'id' });
+    const { error } = await supabaseClient.from('pp_calls').upsert(rows, { onConflict:'id' });
     if(error) throw error;
   }catch(e){ console.error('saveCalls error', e); }
 }
