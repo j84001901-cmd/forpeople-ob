@@ -272,6 +272,19 @@ async function saveSession(userId){
     else{ localStorage.setItem('pp_session', userId); }
   }catch(e){ console.error('saveSession error', e); }
 }
+async function loadSharedSetting(key){
+  try{
+    const { data, error } = await supabaseClient.from('pp_settings').select('*').eq('id', key).maybeSingle();
+    if(error) throw error;
+    return data ? data.value : '';
+  }catch(e){ console.error('loadSharedSetting error', e); return ''; }
+}
+async function saveSharedSetting(key, value){
+  try{
+    const { error } = await supabaseClient.from('pp_settings').upsert({ id:key, value }, { onConflict:'id' });
+    if(error) throw error;
+  }catch(e){ console.error('saveSharedSetting error', e); }
+}
 
 function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
 
@@ -306,7 +319,7 @@ let STATE = {
   calMonthOffset: 0,
   modalCallId: null,
   recState: { recording:false, seconds:0, transcript:'', timerHandle:null, recognition:null, outcome:'visit_confirmed', visitDate:'' },
-  aiApiKey: '',
+  aiSharedKey: '',
   aiAnalyzing: false,
   aiNote: '',
 };
@@ -314,6 +327,7 @@ let STATE = {
 async function init(){
   STATE.users = await loadUsers();
   STATE.calls = await loadCalls();
+  STATE.aiSharedKey = await loadSharedSetting('gemini_api_key');
   if(!STATE.users.some(u=>u.role==='admin')){
     STATE.users.push({
       id: uid('u'), name:'admin', team:'-', phone:'-', password:'admin1234',
@@ -395,7 +409,7 @@ function renderSignup(){
 function renderTopbar(u){
   const isAdmin = u.role==='admin';
   const tabs = isAdmin
-    ? [['admin-approve','가입 승인'],['admin-overview','전체 현황'],['calendar','캘린더']]
+    ? [['admin-approve','가입 승인'],['admin-overview','전체 현황'],['calendar','캘린더'],['ai-settings','AI 연동']]
     : [['trainee','내 대시보드'],['calendar','캘린더']];
   return `
   <div class="topbar">
@@ -417,6 +431,7 @@ function renderMain(u){
   switch(STATE.view){
     case 'admin-approve': return renderAdminApprove();
     case 'admin-overview': return renderAdminOverview();
+    case 'ai-settings': return renderAdminAISettings();
     case 'calendar': return renderCalendar(u);
     case 'trainee': default: return u.role==='admin' ? renderAdminApprove() : renderTrainee(u);
   }
@@ -463,6 +478,20 @@ function renderAdminApprove(){
 }
 
 /* ================= ADMIN: 전체 현황 ================= */
+function renderAdminAISettings(){
+  return `
+  <div class="card" style="max-width:560px;">
+    <h2>AI 연동 설정</h2>
+    <div class="sub">여기서 Gemini API 키를 한 번 등록하면, 모든 팀원이 별도 입력 없이 자동으로 통화내용 AI 분석(내방 확정 여부·날짜 자동 인식)을 사용하게 돼요.</div>
+    <label>Gemini API 키</label>
+    <input type="password" id="sharedAiKeyInput" placeholder="aistudio.google.com에서 무료 발급" value="${escapeHtml(STATE.aiSharedKey)}">
+    <div class="btn-row"><button class="btn teal" id="saveAiKeyBtn">저장</button></div>
+    <div class="key-note">
+      ⚠️ 주의: 이 키는 사이트에 로그인하는 모든 팀원의 브라우저에서 공통으로 사용돼요. 팀원이 개발자도구(F12)를 열면 이 키 값을 볼 수 있는 구조라서, 외부 유출에 주의해주세요. 문제가 생기면 Google AI Studio에서 언제든 키를 재발급/폐기할 수 있어요.
+    </div>
+    ${STATE.aiSharedKey ? '<div class="notice ok">현재 AI 연동이 설정되어 있습니다.</div>' : '<div class="notice info">아직 설정되지 않았습니다. 키를 등록하면 팀원들의 콜 기록 화면에 AI 자동 분석이 활성화됩니다.</div>'}
+  </div>`;
+}
 function renderAdminOverview(){
   const trainees = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved');
   const totalCalls = STATE.calls.length;
@@ -561,13 +590,14 @@ function renderTrainee(u){
       <textarea id="transcriptEdit" placeholder="통화 내용을 입력하거나 위 녹음으로 자동 변환하세요">${escapeHtml(rs.transcript)}</textarea>
 
       <div class="rec-box" style="margin-top:10px;">
-        <label style="margin-top:0;">🤖 AI 자동 분석 (선택)</label>
-        <input type="password" id="aiKeyInput" placeholder="Gemini API 키 (aistudio.google.com에서 무료 발급)" value="${escapeHtml(STATE.aiApiKey)}">
-        <div class="btn-row" style="margin-top:8px;">
-          <button class="btn ghost sm" id="aiAnalyzeBtn" ${STATE.aiAnalyzing? 'disabled':''}>${STATE.aiAnalyzing? '분석 중...' : '통화내용 AI로 분석하기'}</button>
-        </div>
+        <label style="margin-top:0;">🤖 AI 자동 분석</label>
+        ${STATE.aiSharedKey ? `
+          <div class="btn-row" style="margin-top:0;">
+            <button class="btn ghost sm" id="aiAnalyzeBtn" ${STATE.aiAnalyzing? 'disabled':''}>${STATE.aiAnalyzing? '분석 중...' : '🔄 다시 분석하기'}</button>
+          </div>
+          <div class="footnote">녹음을 멈추거나 텍스트 입력 후 다른 곳을 클릭하면 자동으로 분석돼요.</div>
+        ` : `<div class="footnote">관리자가 아직 AI 연동을 설정하지 않았어요. 관리자에게 문의해주세요.</div>`}
         ${STATE.aiNote ? `<div class="notice info" style="margin-top:10px;margin-bottom:0;">${escapeHtml(STATE.aiNote)}</div>` : ''}
-        <div class="footnote">API 키는 브라우저 메모리에만 유지되고 서버에 저장되지 않아요. 새로고침하면 다시 입력해야 해요.</div>
       </div>
 
       <label>통화 결과</label>
@@ -772,12 +802,25 @@ function bindEvents(){
   if(micBtn) micBtn.onclick = toggleRecording;
 
   const transcriptEdit = document.getElementById('transcriptEdit');
-  if(transcriptEdit) transcriptEdit.oninput = (e)=>{ STATE.recState.transcript = e.target.value; };
+  if(transcriptEdit){
+    transcriptEdit.oninput = (e)=>{ STATE.recState.transcript = e.target.value; };
+    transcriptEdit.onblur = ()=>{
+      if(STATE.aiSharedKey && (STATE.recState.transcript||'').trim() && !STATE.aiAnalyzing){
+        analyzeTranscriptWithAI();
+      }
+    };
+  }
 
-  const aiKeyInput = document.getElementById('aiKeyInput');
-  if(aiKeyInput) aiKeyInput.oninput = (e)=>{ STATE.aiApiKey = e.target.value; };
   const aiAnalyzeBtn = document.getElementById('aiAnalyzeBtn');
   if(aiAnalyzeBtn) aiAnalyzeBtn.onclick = analyzeTranscriptWithAI;
+
+  const saveAiKeyBtn = document.getElementById('saveAiKeyBtn');
+  if(saveAiKeyBtn) saveAiKeyBtn.onclick = async ()=>{
+    const val = (document.getElementById('sharedAiKeyInput').value||'').trim();
+    await saveSharedSetting('gemini_api_key', val);
+    STATE.aiSharedKey = val;
+    render();
+  };
 
   app.querySelectorAll('[data-outcome]').forEach(p=>{
     p.onclick = ()=>{ STATE.recState.outcome = p.getAttribute('data-outcome'); render(); };
@@ -909,14 +952,17 @@ function stopRecording(){
     STATE.recState.recognition = null;
   }
   render();
+  if(STATE.aiSharedKey && (STATE.recState.transcript||'').trim() && !STATE.aiAnalyzing){
+    analyzeTranscriptWithAI();
+  }
 }
 
 /* ================= AI TRANSCRIPT ANALYSIS ================= */
 async function analyzeTranscriptWithAI(){
-  const key = (STATE.aiApiKey||'').trim();
+  const key = (STATE.aiSharedKey||'').trim();
   const transcript = (STATE.recState.transcript||'').trim();
-  if(!key){ alert('Gemini API 키를 입력해주세요.'); return; }
-  if(!transcript){ alert('분석할 통화 텍스트가 없습니다. 녹음하거나 직접 입력해주세요.'); return; }
+  if(!key){ alert('관리자가 아직 AI 연동을 설정하지 않았어요.'); return; }
+  if(!transcript){ return; }
 
   STATE.aiAnalyzing = true;
   STATE.aiNote = '';
