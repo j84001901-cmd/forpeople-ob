@@ -160,22 +160,17 @@
   .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
   .cal-dow{text-align:center;font-size:11.5px;color:var(--ink-muted);font-weight:700;padding-bottom:4px;}
   .cal-cell{
-    min-height:86px;border:1px solid var(--line);border-radius:9px;padding:6px;background:#FAFBFC;
-    font-size:11.5px;position:relative;
+    height:52px;border:1px solid var(--line);border-radius:9px;padding:6px;background:#FAFBFC;
+    font-size:11.5px;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
   }
   .cal-cell.out{opacity:0.35;}
-  .cal-cell .d-num{font-family:var(--mono);font-size:11.5px;color:var(--ink-muted);margin-bottom:4px;}
-  .cal-entry{
-    background:var(--teal);color:#fff;border-radius:5px;padding:2px 5px;margin-bottom:3px;
-    font-size:10.8px;cursor:pointer;line-height:1.35;font-weight:600;
+  .cal-cell.has-visits{cursor:pointer;border-color:var(--teal);background:var(--teal-light);}
+  .cal-cell.has-visits:hover{opacity:0.85;}
+  .cal-cell .d-num{font-family:var(--mono);font-size:11.5px;color:var(--ink-muted);}
+  .day-count{
+    background:var(--teal);color:#fff;border-radius:20px;padding:1px 8px;
+    font-size:10.5px;font-weight:700;line-height:1.5;
   }
-  .cal-entry:hover{opacity:0.85;}
-  .cal-entry.team-b{background:var(--navy-2);}
-  .cal-entry.team-c{background:var(--amber);color:#3a2c05;}
-  .cal-entry.team-d{background:var(--rose);}
-  .cal-entry.team-e{background:var(--indigo);}
-  .cal-entry.team-f{background:var(--slate);}
-  .cal-entry.team-g{background:var(--olive);}
 
   .modal-bg{
     position:fixed;inset:0;background:rgba(15,20,35,0.5);display:flex;align-items:center;justify-content:center;
@@ -323,6 +318,7 @@ let STATE = {
   calGroupFilter: null,
   calTeamFilter: 'all',
   modalCallId: null,
+  calDetailDate: null,
   recState: { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false },
   aiSharedKey: '',
   aiAnalyzing: false,
@@ -754,17 +750,57 @@ function renderCalendar(u){
       <option value="all" ${STATE.calTeamFilter==='all'?'selected':''}>전체 팀</option>
       ${teamOptions.map(t=>`<option value="${t}" ${STATE.calTeamFilter===t?'selected':''}>${t}</option>`).join('')}
     </select>
-    <div class="sub" style="margin-top:12px;">담당자 / 팀명 표시, 클릭 시 상세 확인 가능</div>
+    <div class="sub" style="margin-top:12px;">날짜를 클릭하면 팀별·담당자별 내방 예정 건수를 확인할 수 있어요.</div>
     <div class="cal-grid">
       ${['일','월','화','수','목','금','토'].map(d=>`<div class="cal-dow">${d}</div>`).join('')}
       ${cells.map(cell=>{
         if(cell.out) return `<div class="cal-cell out"><div class="d-num">${cell.d}</div></div>`;
         const dayVisits = scoped.filter(v=>v.visitDate===cell.dateStr);
-        return `<div class="cal-cell">
+        const cnt = dayVisits.length;
+        return `<div class="cal-cell ${cnt>0?'has-visits':''}" ${cnt>0?`data-open-day="${cell.dateStr}"`:''}>
           <div class="d-num">${cell.d}</div>
-          ${dayVisits.map(v=>`<div class="cal-entry ${teamClass(v.team)}" data-open-call="${v.id}">${v.userName} · ${v.team}</div>`).join('')}
+          ${cnt>0 ? `<div class="day-count">${cnt}건</div>` : ''}
         </div>`;
       }).join('')}
+    </div>
+  </div>`;
+}
+
+function renderDayModal(){
+  const dateStr = STATE.calDetailDate;
+  if(!dateStr) return '';
+  const u = currentUser();
+  let visits = STATE.calls.filter(c=>c.outcome==='visit_confirmed' && c.visitDate===dateStr);
+  if(STATE.calGroupFilter && STATE.calGroupFilter!=='all'){
+    visits = visits.filter(v=>teamGroup(v.team)===STATE.calGroupFilter);
+  }
+  if(STATE.calTeamFilter && STATE.calTeamFilter!=='all'){
+    visits = visits.filter(v=>v.team===STATE.calTeamFilter);
+  }
+
+  const byTeam = {};
+  visits.forEach(v=>{ (byTeam[v.team] = byTeam[v.team]||[]).push(v); });
+  const byUser = {};
+  visits.forEach(v=>{ (byUser[v.userName] = byUser[v.userName]||[]).push(v); });
+
+  const renderGroup = (groups)=> Object.entries(groups).map(([name, list])=>`
+    <div class="feedback-item">
+      <div class="meta" style="font-weight:700;color:var(--ink);font-size:13px;">${name} · ${list.length}건</div>
+      ${list.map(v=>`<div style="font-size:12.5px;color:var(--teal);cursor:pointer;margin-top:2px;" data-open-call-from-day="${v.id}">· ${v.userName} (${v.team})</div>`).join('')}
+    </div>`).join('');
+
+  return `
+  <div class="modal-bg" id="dayModalBg">
+    <div class="modal">
+      <span class="close-x" id="dayModalClose">×</span>
+      <h3>${dateStr}</h3>
+      <div class="sub">내방 예정 총 <b>${visits.length}건</b></div>
+
+      <label>팀별 내방예정건</label>
+      ${Object.keys(byTeam).length===0 ? `<div class="muted" style="font-size:13px;margin-bottom:10px;">예정된 내방이 없습니다.</div>` : renderGroup(byTeam)}
+
+      <label>담당자별 내방예정건</label>
+      ${Object.keys(byUser).length===0 ? `<div class="muted" style="font-size:13px;">예정된 내방이 없습니다.</div>` : renderGroup(byUser)}
     </div>
   </div>`;
 }
@@ -997,6 +1033,12 @@ function bindEvents(){
       openModal();
     };
   });
+
+  app.querySelectorAll('[data-open-day]').forEach(el=>{
+    el.onclick = ()=>{
+      openDayModal(el.getAttribute('data-open-day'));
+    };
+  });
 }
 
 function openModal(){
@@ -1044,6 +1086,31 @@ function closeModal(){
   if(m) m.remove();
   STATE.modalCallId = null;
   STATE.aiNote = '';
+}
+
+function openDayModal(dateStr){
+  STATE.calDetailDate = dateStr;
+  const existing = document.getElementById('dayModalBg');
+  if(existing) existing.remove();
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = renderDayModal();
+  if(!wrapper.firstElementChild) return;
+  document.body.appendChild(wrapper.firstElementChild);
+  document.getElementById('dayModalClose').onclick = closeDayModal;
+  document.getElementById('dayModalBg').onclick = (e)=>{ if(e.target.id==='dayModalBg') closeDayModal(); };
+  document.querySelectorAll('#dayModalBg [data-open-call-from-day]').forEach(el=>{
+    el.onclick = ()=>{
+      const id = el.getAttribute('data-open-call-from-day');
+      closeDayModal();
+      STATE.modalCallId = id;
+      openModal();
+    };
+  });
+}
+function closeDayModal(){
+  const m = document.getElementById('dayModalBg');
+  if(m) m.remove();
+  STATE.calDetailDate = null;
 }
 
 async function deleteCallRecord(callId){
