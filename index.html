@@ -251,7 +251,7 @@ async function loadCalls(){
     return (data||[]).map(r=>({
       id:r.id, userId:r.user_id, userName:r.user_name, team:r.team,
       createdAt:Number(r.created_at), transcript:r.transcript,
-      outcome:r.outcome, visitDate:r.visit_date, feedback:r.feedback||[]
+      outcome:r.outcome, visitDate:r.visit_date, feedback:r.feedback||[], audioUrl:r.audio_url||null
     }));
   }catch(e){ console.error('loadCalls error', e); return []; }
 }
@@ -260,7 +260,7 @@ async function saveCalls(list){
     const rows = list.map(c=>({
       id:c.id, user_id:c.userId, user_name:c.userName, team:c.team,
       created_at:c.createdAt, transcript:c.transcript,
-      outcome:c.outcome, visit_date:c.visitDate, feedback:c.feedback||[]
+      outcome:c.outcome, visit_date:c.visitDate, feedback:c.feedback||[], audio_url:c.audioUrl||null
     }));
     const { error } = await supabaseClient.from('pp_calls').upsert(rows, { onConflict:'id' });
     if(error) throw error;
@@ -320,8 +320,10 @@ let STATE = {
   authError: '',
   authInfo: '',
   calMonthOffset: 0,
+  calGroupFilter: null,
+  calTeamFilter: 'all',
   modalCallId: null,
-  recState: { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'' },
+  recState: { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false },
   aiSharedKey: '',
   aiAnalyzing: false,
   aiNote: '',
@@ -342,7 +344,7 @@ async function init(){
   if(sess && STATE.users.some(u=>u.id===sess)){
     STATE.currentUserId = sess;
     const u = STATE.users.find(x=>x.id===sess);
-    STATE.view = u.role==='admin' ? 'admin-approve' : (u.status==='approved' ? 'trainee' : 'pending');
+    STATE.view = u.role==='admin' ? 'admin-overview' : (u.status==='approved' ? 'trainee' : 'pending');
   }
   render();
 }
@@ -412,7 +414,7 @@ function renderSignup(){
 function renderTopbar(u){
   const isAdmin = u.role==='admin';
   const tabs = isAdmin
-    ? [['admin-approve','가입 승인'],['admin-overview','전체 현황'],['calendar','캘린더'],['ai-settings','AI 연동']]
+    ? [['admin-overview','전체 현황'],['admin-approve','가입 승인'],['calendar','캘린더'],['ai-settings','AI 연동']]
     : [['trainee','내 대시보드'],['calendar','캘린더']];
   return `
   <div class="topbar">
@@ -436,7 +438,7 @@ function renderMain(u){
     case 'admin-overview': return renderAdminOverview();
     case 'ai-settings': return renderAdminAISettings();
     case 'calendar': return renderCalendar(u);
-    case 'trainee': default: return u.role==='admin' ? renderAdminApprove() : renderTrainee(u);
+    case 'trainee': default: return u.role==='admin' ? renderAdminOverview() : renderTrainee(u);
   }
 }
 
@@ -519,6 +521,33 @@ function renderAdminOverview(){
     </div>
   </div>
   <div class="card">
+    <h2>그룹별 신입 인원 현황</h2>
+    <div class="table-scroll"><table><thead><tr><th>그룹</th><th>신입 인원</th></tr></thead>
+    <tbody>
+      ${GROUP_NAMES.map(g=>{
+        const count = trainees.filter(t=>teamGroup(t.team)===g).length;
+        return `<tr><td>${g}</td><td class="muted" style="font-family:var(--mono);">${count}명</td></tr>`;
+      }).join('')}
+    </tbody></table></div>
+  </div>
+  <div class="card">
+    <h2>신입별 내방약속 순위 <span class="muted" style="font-size:11.5px;font-weight:400;">(이번 달)</span></h2>
+    ${trainees.length===0 ? `<div class="empty">등록된 신입이 없습니다.</div>` : `
+    <div class="table-scroll"><table><thead><tr><th>순위</th><th>이름</th><th>팀</th><th>내방 확정 건수</th></tr></thead>
+    <tbody>
+      ${trainees.map(t=>({ t, visits: monthlyVisitConfirmedCount(t.id) }))
+        .sort((a,b)=>b.visits-a.visits)
+        .map((row,i)=>{
+          const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1);
+          return `<tr>
+            <td style="font-family:var(--mono);">${medal}</td>
+            <td>${row.t.name}</td><td>${row.t.team}</td>
+            <td class="muted" style="font-family:var(--mono);">${row.visits}건</td>
+          </tr>`;
+        }).join('')}
+    </tbody></table></div>`}
+  </div>
+  <div class="card">
     <h2>신입별 당월 진행률</h2>
     ${trainees.length===0 ? `<div class="empty">등록된 신입이 없습니다.</div>` : `
     <div class="table-scroll"><table><thead><tr><th>이름</th><th>팀</th><th>진행률</th><th>이번달 콜 건수</th><th>상태</th></tr></thead>
@@ -578,11 +607,11 @@ function renderTrainee(u){
 
     <div class="card">
       <h2>콜 기록 등록</h2>
-      <div class="sub">휴대폰에 저장된 통화 녹음 파일을 업로드하면 AI가 자동으로 텍스트 변환 + 분석까지 해줘요.</div>
+      <div class="sub">휴대폰에 저장된 통화 녹음 파일을 업로드해야 콜 기록을 저장할 수 있어요. AI 분석은 저장 전이나 후, 원하는 때에 실행하면 돼요.</div>
       <div class="rec-box">
         <label style="margin-top:0;">📎 녹음 파일 업로드</label>
         <input type="file" id="audioFileInput" accept="audio/*">
-        ${rs.audioFileName ? `<div class="footnote">선택된 파일: ${escapeHtml(rs.audioFileName)}</div>` : ''}
+        ${rs.audioFileName ? `<div class="footnote">선택된 파일: ${escapeHtml(rs.audioFileName)} ${rs.audioUploading ? '· 저장 중...' : (rs.audioUrl ? '· 저장 완료 ✓' : '')}</div>` : ''}
         ${STATE.aiAnalyzing ? `<div class="footnote">🔄 업로드한 녹음을 분석하는 중이에요. 잠시만 기다려주세요...</div>` : ''}
       </div>
       <label>녹취 텍스트 (자동 변환 결과, 직접 수정 가능)</label>
@@ -592,9 +621,9 @@ function renderTrainee(u){
         <label style="margin-top:0;">🤖 AI 자동 분석</label>
         ${STATE.aiSharedKey ? `
           <div class="btn-row" style="margin-top:0;">
-            <button class="btn ghost sm" id="aiAnalyzeBtn" ${STATE.aiAnalyzing? 'disabled':''}>${STATE.aiAnalyzing? '분석 중...' : '🔄 다시 분석하기'}</button>
+            <button class="btn ghost sm" id="aiAnalyzeBtn" ${STATE.aiAnalyzing? 'disabled':''}>${STATE.aiAnalyzing? '분석 중...' : '🤖 AI로 분석하기'}</button>
           </div>
-          <div class="footnote">파일을 업로드하면 자동으로 분석돼요. 텍스트를 직접 수정한 뒤에는 버튼으로 다시 분석할 수 있어요.</div>
+          <div class="footnote">지금 바로 분석하거나, 먼저 저장한 뒤 콜 기록 목록에서 나중에 분석할 수도 있어요.</div>
         ` : `<div class="footnote">관리자가 아직 AI 연동을 설정하지 않았어요. 관리자에게 문의해주세요.</div>`}
         ${STATE.aiNote ? `<div class="notice info" style="margin-top:10px;margin-bottom:0;">${escapeHtml(STATE.aiNote)}</div>` : ''}
       </div>
@@ -618,11 +647,12 @@ function renderTrainee(u){
 
   <div class="card">
     <h2>내 콜 기록</h2>
+    <div class="sub">항목을 누르면 녹취 재생, 전체 텍스트, 삭제가 가능해요.</div>
     ${myCalls.length===0 ? `<div class="empty">등록된 콜 기록이 없습니다.</div>` : `
     <div class="table-scroll"><table><thead><tr><th>#</th><th>일시</th><th>결과</th><th>내방일</th><th>녹취 텍스트</th></tr></thead>
     <tbody>
       ${myCalls.map((c,i)=>`
-        <tr>
+        <tr data-open-call="${c.id}" style="cursor:pointer;">
           <td class="muted" style="font-family:var(--mono);">${myCalls.length-i}</td>
           <td class="muted">${new Date(c.createdAt).toLocaleString('ko-KR')}</td>
           <td>${outcomeBadge(c.outcome)}</td>
@@ -645,6 +675,14 @@ function monthlyCallCount(userId){
     return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth();
   }).length;
 }
+function monthlyVisitConfirmedCount(userId){
+  const now = new Date();
+  return STATE.calls.filter(c=>{
+    if(c.userId!==userId || c.outcome!=='visit_confirmed') return false;
+    const d = new Date(c.createdAt);
+    return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth();
+  }).length;
+}
 function outcomeBadge(o){
   if(o==='visit_confirmed') return '<span class="badge visit">내방 확정</span>';
   if(o==='callback') return '<span class="badge callback">재통화 필요</span>';
@@ -661,6 +699,10 @@ function escapeHtml(s){
 
 /* ================= CALENDAR ================= */
 function renderCalendar(u){
+  if(!STATE.calGroupFilter){
+    STATE.calGroupFilter = u.role==='admin' ? 'all' : (teamGroup(u.team) || 'all');
+    STATE.calTeamFilter = 'all';
+  }
   const now = new Date();
   now.setMonth(now.getMonth()+STATE.calMonthOffset);
   const year = now.getFullYear(), month = now.getMonth();
@@ -670,7 +712,17 @@ function renderCalendar(u){
   const prevDays = new Date(year, month, 0).getDate();
 
   const visits = STATE.calls.filter(c=>c.outcome==='visit_confirmed' && c.visitDate);
-  const scoped = u.role==='admin' ? visits : visits.filter(v=>v.team===u.team);
+  let scoped = visits;
+  if(STATE.calGroupFilter !== 'all'){
+    scoped = scoped.filter(v=>teamGroup(v.team)===STATE.calGroupFilter);
+  }
+  if(STATE.calTeamFilter !== 'all'){
+    scoped = scoped.filter(v=>v.team===STATE.calTeamFilter);
+  }
+
+  const teamOptions = STATE.calGroupFilter==='all'
+    ? GROUP_NAMES.flatMap(g=>GROUPS[g])
+    : GROUPS[STATE.calGroupFilter] || [];
 
   let cells = [];
   for(let i=0;i<startWeekday;i++){
@@ -692,7 +744,17 @@ function renderCalendar(u){
         <button class="btn ghost sm" id="calNext">다음 ›</button>
       </div>
     </div>
-    <div class="sub">${u.role==='admin' ? '전체 팀 내방 확정 일정' : u.team+' 내방 확정 일정'} · 담당자 / 팀명 표시, 클릭 시 피드백 작성 가능</div>
+    <label>그룹</label>
+    <select id="calGroupSelect">
+      <option value="all" ${STATE.calGroupFilter==='all'?'selected':''}>전체 그룹</option>
+      ${GROUP_NAMES.map(g=>`<option value="${g}" ${STATE.calGroupFilter===g?'selected':''}>${g}</option>`).join('')}
+    </select>
+    <label>팀</label>
+    <select id="calTeamSelect">
+      <option value="all" ${STATE.calTeamFilter==='all'?'selected':''}>전체 팀</option>
+      ${teamOptions.map(t=>`<option value="${t}" ${STATE.calTeamFilter===t?'selected':''}>${t}</option>`).join('')}
+    </select>
+    <div class="sub" style="margin-top:12px;">담당자 / 팀명 표시, 클릭 시 상세 확인 가능</div>
     <div class="cal-grid">
       ${['일','월','화','수','목','금','토'].map(d=>`<div class="cal-dow">${d}</div>`).join('')}
       ${cells.map(cell=>{
@@ -710,19 +772,35 @@ function renderCalendar(u){
 function renderCallModal(){
   const call = STATE.calls.find(c=>c.id===STATE.modalCallId);
   if(!call) return '';
+  const u = currentUser();
+  const canDelete = u && (u.role==='admin' || u.id===call.userId);
   return `
   <div class="modal-bg" id="modalBg">
     <div class="modal">
       <span class="close-x" id="modalClose">×</span>
       <h3>${call.userName} · ${call.team}</h3>
-      <div class="sub">내방 예정일: <b>${call.visitDate}</b></div>
+      <div class="sub">${new Date(call.createdAt).toLocaleString('ko-KR')} ${outcomeBadge(call.outcome)}</div>
+      ${call.visitDate ? `<div class="sub" style="margin-top:-8px;">내방 예정일: <b>${call.visitDate}</b></div>` : ''}
+      ${call.audioUrl ? `
+        <label>녹취 파일</label>
+        <audio controls style="width:100%;" src="${call.audioUrl}"></audio>
+        ${STATE.aiSharedKey ? `
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn ghost sm" id="analyzeSavedBtn" ${STATE.aiAnalyzing? 'disabled':''}>${STATE.aiAnalyzing? '분석 중...' : '🤖 AI로 분석하기'}</button>
+          </div>
+        ` : ''}
+        ${STATE.aiNote ? `<div class="notice info" style="margin-top:10px;">${escapeHtml(STATE.aiNote)}</div>` : ''}
+      ` : ''}
       <label>녹취 텍스트</label>
-      <div class="transcript-box">${escapeHtml(call.transcript)||'(녹취 텍스트 없음)'}</div>
-      <label>피드백</label>
-      ${(call.feedback||[]).length===0 ? `<div class="muted" style="font-size:13px;margin-bottom:8px;">등록된 피드백이 없습니다.</div>` :
-        call.feedback.map(f=>`<div class="feedback-item"><div class="meta">${f.author} · ${new Date(f.at).toLocaleString('ko-KR')}</div>${escapeHtml(f.text)}</div>`).join('')}
-      <textarea id="feedbackInput" placeholder="피드백을 입력하세요"></textarea>
-      <div class="btn-row"><button class="btn teal" id="addFeedbackBtn">피드백 등록</button></div>
+      <div class="transcript-box">${escapeHtml(call.transcript)||'(녹취 텍스트 없음, AI로 분석하거나 직접 입력해주세요)'}</div>
+      ${call.outcome==='visit_confirmed' ? `
+        <label>피드백</label>
+        ${(call.feedback||[]).length===0 ? `<div class="muted" style="font-size:13px;margin-bottom:8px;">등록된 피드백이 없습니다.</div>` :
+          call.feedback.map(f=>`<div class="feedback-item"><div class="meta">${f.author} · ${new Date(f.at).toLocaleString('ko-KR')}</div>${escapeHtml(f.text)}</div>`).join('')}
+        <textarea id="feedbackInput" placeholder="피드백을 입력하세요"></textarea>
+        <div class="btn-row"><button class="btn teal" id="addFeedbackBtn">피드백 등록</button></div>
+      ` : ''}
+      ${canDelete ? `<div class="btn-row"><button class="btn rose" id="deleteCallBtn">이 콜 기록 삭제</button></div>` : ''}
     </div>
   </div>`;
 }
@@ -756,7 +834,7 @@ function bindEvents(){
     STATE.currentUserId = u.id;
     STATE.authError=''; STATE.authInfo='';
     await saveSession(u.id);
-    STATE.view = u.role==='admin' ? 'admin-approve' : (u.status==='approved' ? 'trainee' : 'pending');
+    STATE.view = u.role==='admin' ? 'admin-overview' : (u.status==='approved' ? 'trainee' : 'pending');
     render();
   };
 
@@ -815,17 +893,16 @@ function bindEvents(){
       return;
     }
     STATE.recState.audioFileName = file.name;
+    STATE.recState.audioUploading = true;
+    render();
     try{
       const base64 = await readFileAsBase64(file);
       STATE.recState.audioBase64 = base64;
       STATE.recState.audioMime = resolveAudioMime(file);
-      render();
-      if(STATE.aiSharedKey){
-        analyzeAudioWithAI();
-      }else{
-        alert('관리자가 아직 AI 연동을 설정하지 않았어요. 녹취 텍스트를 직접 입력해주세요.');
-      }
+      await uploadAudioToStorage(file); // wait for upload so it's guaranteed saved with the record
     }catch(err){
+      STATE.recState.audioUploading = false;
+      render();
       alert('파일을 읽는 중 오류가 발생했습니다: ' + err.message);
     }
   };
@@ -864,6 +941,14 @@ function bindEvents(){
   if(saveCallBtn) saveCallBtn.onclick = async ()=>{
     const u = currentUser();
     const rs = STATE.recState;
+    if(!rs.audioBase64){
+      alert('녹취 파일을 먼저 업로드해야 콜 기록을 저장할 수 있어요.');
+      return;
+    }
+    if(rs.audioUploading){
+      alert('녹취 파일 저장이 아직 끝나지 않았어요. 잠시만 기다려주세요.');
+      return;
+    }
     if(rs.outcome==='visit_confirmed' && !rs.visitDate){
       alert('내방 확정 건은 내방 예정일을 입력해주세요.');
       return;
@@ -872,19 +957,19 @@ function bindEvents(){
       id: uid('c'), userId:u.id, userName:u.name, team:u.team,
       createdAt: Date.now(), transcript: rs.transcript||'',
       outcome: rs.outcome, visitDate: rs.outcome==='visit_confirmed'? rs.visitDate : null,
-      feedback: []
+      feedback: [], audioUrl: rs.audioUrl || null
     };
     STATE.calls.push(call);
     await saveCalls(STATE.calls);
     u.callCount = (u.callCount||0)+1;
     await saveUsers(STATE.users);
-    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'' };
+    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false };
     STATE.aiNote = '';
     render();
   };
   const clearCallBtn = document.getElementById('clearCallBtn');
   if(clearCallBtn) clearCallBtn.onclick = ()=>{
-    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'' };
+    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false };
     STATE.aiNote = '';
     render();
   };
@@ -894,6 +979,17 @@ function bindEvents(){
   if(calPrev) calPrev.onclick = ()=>{ STATE.calMonthOffset--; render(); };
   const calNext = document.getElementById('calNext');
   if(calNext) calNext.onclick = ()=>{ STATE.calMonthOffset++; render(); };
+  const calGroupSelect = document.getElementById('calGroupSelect');
+  if(calGroupSelect) calGroupSelect.onchange = (e)=>{
+    STATE.calGroupFilter = e.target.value;
+    STATE.calTeamFilter = 'all';
+    render();
+  };
+  const calTeamSelect = document.getElementById('calTeamSelect');
+  if(calTeamSelect) calTeamSelect.onchange = (e)=>{
+    STATE.calTeamFilter = e.target.value;
+    render();
+  };
 
   app.querySelectorAll('[data-open-call]').forEach(el=>{
     el.onclick = ()=>{
@@ -908,25 +1004,62 @@ function openModal(){
   if(existing) existing.remove();
   const wrapper = document.createElement('div');
   wrapper.innerHTML = renderCallModal();
+  if(!wrapper.firstElementChild) return;
   document.body.appendChild(wrapper.firstElementChild);
   document.getElementById('modalClose').onclick = closeModal;
   document.getElementById('modalBg').onclick = (e)=>{ if(e.target.id==='modalBg') closeModal(); };
-  document.getElementById('addFeedbackBtn').onclick = async ()=>{
-    const text = document.getElementById('feedbackInput').value.trim();
-    if(!text) return;
-    const call = STATE.calls.find(c=>c.id===STATE.modalCallId);
-    const u = currentUser();
-    call.feedback = call.feedback || [];
-    call.feedback.push({ id: uid('f'), author:u.name, text, at: Date.now() });
-    await saveCalls(STATE.calls);
-    closeModal();
-    render();
-  };
+
+  const addFeedbackBtn = document.getElementById('addFeedbackBtn');
+  if(addFeedbackBtn){
+    addFeedbackBtn.onclick = async ()=>{
+      const text = document.getElementById('feedbackInput').value.trim();
+      if(!text) return;
+      const call = STATE.calls.find(c=>c.id===STATE.modalCallId);
+      const u = currentUser();
+      call.feedback = call.feedback || [];
+      call.feedback.push({ id: uid('f'), author:u.name, text, at: Date.now() });
+      await saveCalls(STATE.calls);
+      closeModal();
+      render();
+    };
+  }
+
+  const deleteCallBtn = document.getElementById('deleteCallBtn');
+  if(deleteCallBtn){
+    deleteCallBtn.onclick = async ()=>{
+      if(!confirm('이 콜 기록을 삭제하시겠습니까? 되돌릴 수 없습니다.')) return;
+      await deleteCallRecord(STATE.modalCallId);
+      closeModal();
+      render();
+    };
+  }
+
+  const analyzeSavedBtn = document.getElementById('analyzeSavedBtn');
+  if(analyzeSavedBtn){
+    analyzeSavedBtn.onclick = ()=>{ analyzeSavedCall(STATE.modalCallId); };
+  }
 }
 function closeModal(){
   const m = document.getElementById('modalBg');
   if(m) m.remove();
   STATE.modalCallId = null;
+  STATE.aiNote = '';
+}
+
+async function deleteCallRecord(callId){
+  const call = STATE.calls.find(c=>c.id===callId);
+  if(!call) return;
+  try{
+    const { error } = await supabaseClient.from('pp_calls').delete().eq('id', callId);
+    if(error) throw error;
+  }catch(e){ console.error('deleteCallRecord error', e); }
+  if(call.audioUrl){
+    try{
+      const path = call.audioUrl.split('/call-recordings/')[1];
+      if(path) await supabaseClient.storage.from('call-recordings').remove([path]);
+    }catch(e){ console.error('audio delete error', e); }
+  }
+  STATE.calls = STATE.calls.filter(c=>c.id!==callId);
 }
 
 /* ================= AUDIO FILE UPLOAD ================= */
@@ -937,6 +1070,28 @@ function readFileAsBase64(file){
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function safeFileExt(name){
+  const m = /\.[a-zA-Z0-9]+$/.exec(name||'');
+  return m ? m[0] : '';
+}
+
+async function uploadAudioToStorage(file){
+  try{
+    const path = `${uid('rec')}${safeFileExt(file.name)}`;
+    const { error } = await supabaseClient.storage.from('call-recordings').upload(path, file, {
+      contentType: file.type || 'audio/mpeg', upsert: false
+    });
+    if(error) throw error;
+    const { data } = supabaseClient.storage.from('call-recordings').getPublicUrl(path);
+    STATE.recState.audioUrl = data.publicUrl;
+  }catch(e){
+    console.error('uploadAudioToStorage error', e);
+  }finally{
+    STATE.recState.audioUploading = false;
+    render();
+  }
 }
 
 function resolveAudioMime(file){
@@ -950,6 +1105,17 @@ function resolveAudioMime(file){
   if(extMap[ext]) return extMap[ext];
   if(file.type && file.type.startsWith('audio/')) return file.type;
   return 'audio/mp4';
+}
+function resolveAudioMimeFromUrl(url){
+  return resolveAudioMime({ name: (url||'').split('?')[0] });
+}
+function fetchUrlAsBase64(url){
+  return fetch(url).then(res=>res.blob()).then(blob=>new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  }));
 }
 
 async function callGeminiAPI(key, parts, attempt){
@@ -1014,6 +1180,53 @@ async function analyzeAudioWithAI(){
     STATE.aiNote = 'AI 분석 실패: ' + e.message + ' (잠시 후 "다시 분석하기"를 눌러 재시도해보세요)';
   }finally{
     STATE.aiAnalyzing = false;
+    render();
+  }
+}
+
+async function analyzeSavedCall(callId){
+  const key = (STATE.aiSharedKey||'').trim();
+  const call = STATE.calls.find(c=>c.id===callId);
+  if(!key){ alert('관리자가 아직 AI 연동을 설정하지 않았어요.'); return; }
+  if(!call || !call.audioUrl){ alert('녹취 파일이 없습니다.'); return; }
+
+  STATE.aiAnalyzing = true;
+  STATE.aiNote = '재시도 포함 최대 몇 초 걸릴 수 있어요...';
+  openModal();
+
+  const prompt = `오늘 날짜는 ${todayStr()}입니다. 첨부된 오디오는 보험/금융 상담원이 고객과 나눈 전화 통화 녹음입니다.
+다음을 수행하세요:
+1) 통화 내용을 한국어 텍스트로 최대한 정확하게 받아적으세요.
+2) 통화 내용을 분석해서 결과를 판단하세요.
+
+아래 JSON 형식으로만 답변하세요. 다른 설명, 마크다운, 코드블록 없이 순수 JSON 한 줄만 출력하세요.
+{"transcript": "받아적은 통화 전체 내용", "outcome": "visit_confirmed | callback | declined 중 하나", "visitDate": "내방 예정일이 있으면 YYYY-MM-DD, 없으면 null", "reason": "판단 근거를 한 문장으로 요약"}`;
+
+  try{
+    const base64 = await fetchUrlAsBase64(call.audioUrl);
+    const mime = resolveAudioMimeFromUrl(call.audioUrl);
+    const text = await callGeminiAPI(key, [
+      { text: prompt },
+      { inline_data: { mime_type: mime, data: base64 } }
+    ]);
+    let raw = text.trim();
+    raw = raw.replace(/^```json\s*|^```\s*|```$/g, '').trim();
+    const parsed = JSON.parse(raw);
+
+    if(parsed.transcript){ call.transcript = parsed.transcript; }
+    if(['visit_confirmed','callback','declined'].includes(parsed.outcome)){
+      call.outcome = parsed.outcome;
+    }
+    if(parsed.visitDate && /^\d{4}-\d{2}-\d{2}$/.test(parsed.visitDate)){
+      call.visitDate = parsed.visitDate;
+    }
+    await saveCalls(STATE.calls);
+    STATE.aiNote = 'AI 분석 결과: ' + (parsed.reason || '분석 완료') + ' (결과가 자동으로 반영되었어요. 필요하면 다시 확인해주세요)';
+  }catch(e){
+    STATE.aiNote = 'AI 분석 실패: ' + e.message + ' (잠시 후 다시 시도해보세요)';
+  }finally{
+    STATE.aiAnalyzing = false;
+    openModal();
     render();
   }
 }
