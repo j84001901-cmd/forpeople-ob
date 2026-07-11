@@ -26,14 +26,30 @@
     --mono: 'SFMono-Regular', ui-monospace, 'JetBrains Mono', Consolas, monospace;
   }
   *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
   body{
     margin:0;
-    background:var(--bg);
+    background:#D9DDE3;
     color:var(--ink);
     font-family:'Pretendard','Noto Sans KR','Apple SD Gothic Neo',system-ui,-apple-system,sans-serif;
     -webkit-font-smoothing:antialiased;
   }
-  #app{min-height:100vh;display:flex;flex-direction:column;}
+  #app{
+    min-height:100vh;display:flex;flex-direction:column;
+    background:var(--bg);
+    max-width:480px;
+    margin:0 auto;
+  }
+  @media (min-width:520px){
+    body{ padding:28px 0; }
+    #app{
+      min-height:calc(100vh - 56px);
+      border-radius:28px;
+      overflow:hidden;
+      box-shadow:0 20px 50px rgba(20,40,80,0.18);
+      border:1px solid rgba(20,40,80,0.08);
+    }
+  }
 
   /* top bar */
   .topbar{
@@ -64,19 +80,18 @@
   }
   .logout-btn:hover{background:rgba(255,255,255,0.2);}
 
-  main{flex:1;padding:28px 24px 60px;max-width:1180px;width:100%;margin:0 auto;}
+  main{flex:1;padding:18px 14px 70px;width:100%;margin:0 auto;}
 
-  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px;margin-bottom:18px;}
-  .card h2{margin:0 0 4px;font-size:17px;letter-spacing:-0.01em;}
-  .card .sub{color:var(--ink-muted);font-size:13px;margin-bottom:16px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;}
+  .card h2{margin:0 0 4px;font-size:16px;letter-spacing:-0.01em;}
+  .card .sub{color:var(--ink-muted);font-size:12.5px;margin-bottom:14px;}
 
-  .grid2{display:grid;grid-template-columns:1.1fr 1fr;gap:18px;}
-  @media (max-width:860px){.grid2{grid-template-columns:1fr;}}
+  .grid2{display:grid;grid-template-columns:1fr;gap:14px;}
 
   label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-muted);margin:12px 0 6px;}
   label:first-child{margin-top:0;}
-  input[type=text],input[type=tel],input[type=password],input[type=date],input[type=datetime-local],select,textarea{
-    width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px;
+  input[type=text],input[type=tel],input[type=password],input[type=date],input[type=datetime-local],input[type=file],select,textarea{
+    width:100%;padding:12px 12px;border:1px solid var(--line);border-radius:9px;font-size:16px;
     font-family:inherit;background:#FAFBFC;color:var(--ink);
   }
   input:focus,select:focus,textarea:focus{outline:2px solid var(--teal);outline-offset:1px;background:#fff;}
@@ -84,8 +99,8 @@
 
   .btn{
     display:inline-flex;align-items:center;justify-content:center;gap:6px;
-    background:var(--navy);color:#fff;border:none;padding:10px 18px;border-radius:9px;
-    font-size:13.5px;font-weight:700;cursor:pointer;transition:transform .1s,opacity .15s;
+    background:var(--navy);color:#fff;border:none;padding:12px 18px;min-height:46px;border-radius:10px;
+    font-size:14.5px;font-weight:700;cursor:pointer;transition:transform .1s,opacity .15s;
   }
   .btn:hover{opacity:0.9;}
   .btn:active{transform:scale(0.98);}
@@ -93,7 +108,7 @@
   .btn.amber{background:var(--amber);color:#3a2c05;}
   .btn.rose{background:var(--rose);}
   .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);}
-  .btn.sm{padding:6px 12px;font-size:12.5px;}
+  .btn.sm{padding:8px 14px;min-height:38px;font-size:13px;}
   .btn:disabled{opacity:0.45;cursor:not-allowed;}
   .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
 
@@ -105,10 +120,11 @@
   .badge.callback{background:var(--amber-light);color:#8a6417;}
   .badge.declined{background:var(--rose-light);color:#8a2f2a;}
 
-  table{width:100%;border-collapse:collapse;font-size:13.5px;}
-  th{text-align:left;color:var(--ink-muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;
-     padding:8px 10px;border-bottom:1px solid var(--line);}
-  td{padding:10px 10px;border-bottom:1px solid var(--line);vertical-align:top;}
+  .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -18px;padding:0 18px;}
+  table{width:100%;min-width:480px;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--ink-muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;
+     padding:8px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top;}
   tr:last-child td{border-bottom:none;}
   .muted{color:var(--ink-muted);}
   .empty{padding:30px 10px;text-align:center;color:var(--ink-muted);font-size:13.5px;}
@@ -134,19 +150,6 @@
 
   /* recording box */
   .rec-box{border:1px dashed var(--line);border-radius:12px;padding:16px;background:#FAFBFC;}
-  .rec-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
-  .mic-btn{
-    width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;
-    background:var(--rose);color:#fff;font-size:18px;display:flex;align-items:center;justify-content:center;
-    transition:transform .15s;
-  }
-  .mic-btn.recording{animation:pulse 1.2s infinite;}
-  @keyframes pulse{
-    0%{box-shadow:0 0 0 0 rgba(193,82,75,0.45);}
-    70%{box-shadow:0 0 0 14px rgba(193,82,75,0);}
-    100%{box-shadow:0 0 0 0 rgba(193,82,75,0);}
-  }
-  .rec-timer{font-family:var(--mono);font-size:14px;color:var(--ink-muted);}
   .transcript-box{margin-top:12px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:13.5px;min-height:60px;white-space:pre-wrap;line-height:1.6;}
   .transcript-box.placeholder{color:var(--ink-muted);}
 
@@ -318,7 +321,7 @@ let STATE = {
   authInfo: '',
   calMonthOffset: 0,
   modalCallId: null,
-  recState: { recording:false, seconds:0, transcript:'', timerHandle:null, recognition:null, outcome:'visit_confirmed', visitDate:'' },
+  recState: { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'' },
   aiSharedKey: '',
   aiAnalyzing: false,
   aiNote: '',
@@ -454,7 +457,7 @@ function renderAdminApprove(){
     <h2>가입 승인 대기</h2>
     <div class="sub">신입 컨설턴트의 회원가입 요청을 확인하고 승인/거절하세요.</div>
     ${pending.length===0 ? `<div class="empty">대기중인 요청이 없습니다.</div>` : `
-    <table><thead><tr><th>이름</th><th>소속팀</th><th>연락처</th><th>신청일</th><th></th></tr></thead>
+    <div class="table-scroll"><table><thead><tr><th>이름</th><th>소속팀</th><th>연락처</th><th>신청일</th><th></th></tr></thead>
     <tbody>
       ${pending.map(p=>`
         <tr>
@@ -465,15 +468,15 @@ function renderAdminApprove(){
             <button class="btn rose sm" data-reject="${p.id}">거절</button>
           </td>
         </tr>`).join('')}
-    </tbody></table>`}
+    </tbody></table></div>`}
   </div>
   <div class="card">
     <h2>처리 완료 내역</h2>
     ${others.length===0 ? `<div class="empty">아직 처리된 계정이 없습니다.</div>` : `
-    <table><thead><tr><th>이름</th><th>소속팀</th><th>상태</th></tr></thead>
+    <div class="table-scroll"><table><thead><tr><th>이름</th><th>소속팀</th><th>상태</th></tr></thead>
     <tbody>
       ${others.map(p=>`<tr><td>${p.name}</td><td>${p.team}</td><td><span class="badge ${p.status}">${p.status==='approved'?'승인됨':'거절됨'}</span></td></tr>`).join('')}
-    </tbody></table>`}
+    </tbody></table></div>`}
   </div>`;
 }
 
@@ -518,7 +521,7 @@ function renderAdminOverview(){
   <div class="card">
     <h2>신입별 진행률</h2>
     ${trainees.length===0 ? `<div class="empty">등록된 신입이 없습니다.</div>` : `
-    <table><thead><tr><th>이름</th><th>팀</th><th>진행률</th><th>콜 건수</th><th>상태</th></tr></thead>
+    <div class="table-scroll"><table><thead><tr><th>이름</th><th>팀</th><th>진행률</th><th>콜 건수</th><th>상태</th></tr></thead>
     <tbody>
       ${trainees.map(t=>{
         const cnt = t.callCount||0;
@@ -535,7 +538,7 @@ function renderAdminOverview(){
           <td>${done ? '<span class="badge approved">전환완료</span>' : '<span class="badge pending">진행중</span>'}</td>
         </tr>`;
       }).join('')}
-    </tbody></table>`}
+    </tbody></table></div>`}
   </div>`;
 }
 
@@ -575,19 +578,15 @@ function renderTrainee(u){
 
     <div class="card">
       <h2>콜 기록 등록</h2>
-      <div class="sub">통화 녹취를 녹음하면 실시간으로 텍스트 변환됩니다 (Chrome/Edge 브라우저 권장).</div>
+      <div class="sub">휴대폰에 저장된 통화 녹음 파일을 업로드하면 AI가 자동으로 텍스트 변환 + 분석까지 해줘요.</div>
       <div class="rec-box">
-        <div class="rec-controls">
-          <button id="micBtn" class="mic-btn ${rs.recording?'recording':''}">${rs.recording?'■':'●'}</button>
-          <div>
-            <div class="rec-timer" id="recTimer">${formatTime(rs.seconds)}</div>
-            <div class="muted" style="font-size:11.5px;">${rs.recording? '녹음 및 실시간 변환 중...' : '버튼을 눌러 녹음을 시작하세요'}</div>
-          </div>
-        </div>
-        <div class="transcript-box ${rs.transcript? '' : 'placeholder'}" id="transcriptBox">${rs.transcript || '변환된 텍스트가 여기에 표시됩니다. (직접 입력/수정도 가능)'}</div>
+        <label style="margin-top:0;">📎 녹음 파일 업로드</label>
+        <input type="file" id="audioFileInput" accept="audio/*">
+        ${rs.audioFileName ? `<div class="footnote">선택된 파일: ${escapeHtml(rs.audioFileName)}</div>` : ''}
+        ${STATE.aiAnalyzing ? `<div class="footnote">🔄 업로드한 녹음을 분석하는 중이에요. 잠시만 기다려주세요...</div>` : ''}
       </div>
-      <label>녹취 텍스트 (직접 수정 가능)</label>
-      <textarea id="transcriptEdit" placeholder="통화 내용을 입력하거나 위 녹음으로 자동 변환하세요">${escapeHtml(rs.transcript)}</textarea>
+      <label>녹취 텍스트 (자동 변환 결과, 직접 수정 가능)</label>
+      <textarea id="transcriptEdit" placeholder="녹음 파일을 업로드하면 자동으로 채워지거나, 직접 입력할 수도 있어요">${escapeHtml(rs.transcript)}</textarea>
 
       <div class="rec-box" style="margin-top:10px;">
         <label style="margin-top:0;">🤖 AI 자동 분석</label>
@@ -595,7 +594,7 @@ function renderTrainee(u){
           <div class="btn-row" style="margin-top:0;">
             <button class="btn ghost sm" id="aiAnalyzeBtn" ${STATE.aiAnalyzing? 'disabled':''}>${STATE.aiAnalyzing? '분석 중...' : '🔄 다시 분석하기'}</button>
           </div>
-          <div class="footnote">녹음을 멈추거나 텍스트 입력 후 다른 곳을 클릭하면 자동으로 분석돼요.</div>
+          <div class="footnote">파일을 업로드하면 자동으로 분석돼요. 텍스트를 직접 수정한 뒤에는 버튼으로 다시 분석할 수 있어요.</div>
         ` : `<div class="footnote">관리자가 아직 AI 연동을 설정하지 않았어요. 관리자에게 문의해주세요.</div>`}
         ${STATE.aiNote ? `<div class="notice info" style="margin-top:10px;margin-bottom:0;">${escapeHtml(STATE.aiNote)}</div>` : ''}
       </div>
@@ -620,7 +619,7 @@ function renderTrainee(u){
   <div class="card">
     <h2>내 콜 기록</h2>
     ${myCalls.length===0 ? `<div class="empty">등록된 콜 기록이 없습니다.</div>` : `
-    <table><thead><tr><th>#</th><th>일시</th><th>결과</th><th>내방일</th><th>녹취 텍스트</th></tr></thead>
+    <div class="table-scroll"><table><thead><tr><th>#</th><th>일시</th><th>결과</th><th>내방일</th><th>녹취 텍스트</th></tr></thead>
     <tbody>
       ${myCalls.map((c,i)=>`
         <tr>
@@ -630,7 +629,7 @@ function renderTrainee(u){
           <td class="muted">${c.visitDate||'-'}</td>
           <td style="max-width:320px;">${(c.transcript||'').slice(0,80)}${(c.transcript||'').length>80?'…':''}</td>
         </tr>`).join('')}
-    </tbody></table>`}
+    </tbody></table></div>`}
   </div>`;
 }
 
@@ -797,9 +796,31 @@ function bindEvents(){
     };
   });
 
-  /* recording */
-  const micBtn = document.getElementById('micBtn');
-  if(micBtn) micBtn.onclick = toggleRecording;
+  /* audio file upload */
+  const audioFileInput = document.getElementById('audioFileInput');
+  if(audioFileInput) audioFileInput.onchange = async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    if(file.size > 15*1024*1024){
+      alert('파일이 너무 큽니다. 15MB 이하의 녹음 파일로 업로드해주세요.');
+      e.target.value = '';
+      return;
+    }
+    STATE.recState.audioFileName = file.name;
+    try{
+      const base64 = await readFileAsBase64(file);
+      STATE.recState.audioBase64 = base64;
+      STATE.recState.audioMime = file.type || 'audio/mpeg';
+      render();
+      if(STATE.aiSharedKey){
+        analyzeAudioWithAI();
+      }else{
+        alert('관리자가 아직 AI 연동을 설정하지 않았어요. 녹취 텍스트를 직접 입력해주세요.');
+      }
+    }catch(err){
+      alert('파일을 읽는 중 오류가 발생했습니다: ' + err.message);
+    }
+  };
 
   const transcriptEdit = document.getElementById('transcriptEdit');
   if(transcriptEdit){
@@ -812,7 +833,10 @@ function bindEvents(){
   }
 
   const aiAnalyzeBtn = document.getElementById('aiAnalyzeBtn');
-  if(aiAnalyzeBtn) aiAnalyzeBtn.onclick = analyzeTranscriptWithAI;
+  if(aiAnalyzeBtn) aiAnalyzeBtn.onclick = ()=>{
+    if(STATE.recState.audioBase64){ analyzeAudioWithAI(); }
+    else{ analyzeTranscriptWithAI(); }
+  };
 
   const saveAiKeyBtn = document.getElementById('saveAiKeyBtn');
   if(saveAiKeyBtn) saveAiKeyBtn.onclick = async ()=>{
@@ -846,14 +870,13 @@ function bindEvents(){
     await saveCalls(STATE.calls);
     u.callCount = (u.callCount||0)+1;
     await saveUsers(STATE.users);
-    STATE.recState = { recording:false, seconds:0, transcript:'', timerHandle:null, recognition:null, outcome:'visit_confirmed', visitDate:'' };
+    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'' };
     STATE.aiNote = '';
     render();
   };
   const clearCallBtn = document.getElementById('clearCallBtn');
   if(clearCallBtn) clearCallBtn.onclick = ()=>{
-    stopRecording();
-    STATE.recState = { recording:false, seconds:0, transcript:'', timerHandle:null, recognition:null, outcome:'visit_confirmed', visitDate:'' };
+    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'' };
     STATE.aiNote = '';
     render();
   };
@@ -898,62 +921,66 @@ function closeModal(){
   STATE.modalCallId = null;
 }
 
-/* ================= RECORDING / STT ================= */
-function toggleRecording(){
-  if(STATE.recState.recording){ stopRecording(); }
-  else{ startRecording(); }
+/* ================= AUDIO FILE UPLOAD ================= */
+function readFileAsBase64(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
-function startRecording(){
-  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  STATE.recState.recording = true;
-  STATE.recState.seconds = 0;
-  render();
-  STATE.recState.timerHandle = setInterval(()=>{
-    STATE.recState.seconds++;
-    const t = document.getElementById('recTimer');
-    if(t) t.textContent = formatTime(STATE.recState.seconds);
-  },1000);
 
-  if(!SpeechRec){
-    const box = document.getElementById('transcriptBox');
-    if(box){ box.classList.remove('placeholder'); box.textContent = '이 브라우저는 실시간 음성-텍스트 변환(Web Speech API)을 지원하지 않습니다. Chrome 또는 Edge에서 이용해주세요. 아래 입력창에 직접 텍스트를 입력할 수 있습니다.'; }
-    return;
-  }
-  const recognition = new SpeechRec();
-  recognition.lang = 'ko-KR';
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  let finalText = STATE.recState.transcript || '';
-  recognition.onresult = (event)=>{
-    let interim = '';
-    for(let i=event.resultIndex;i<event.results.length;i++){
-      const t = event.results[i][0].transcript;
-      if(event.results[i].isFinal) finalText += t + ' ';
-      else interim += t;
-    }
-    STATE.recState.transcript = finalText;
-    const box = document.getElementById('transcriptBox');
-    if(box){ box.classList.remove('placeholder'); box.textContent = finalText + interim; }
-    const edit = document.getElementById('transcriptEdit');
-    if(edit) edit.value = finalText;
-  };
-  recognition.onerror = (e)=>{
-    const box = document.getElementById('transcriptBox');
-    if(box){ box.classList.remove('placeholder'); box.textContent = (STATE.recState.transcript||'') + '\n[음성 인식 오류: '+e.error+'. 마이크 권한을 확인해주세요.]'; }
-  };
-  recognition.start();
-  STATE.recState.recognition = recognition;
-}
-function stopRecording(){
-  STATE.recState.recording = false;
-  if(STATE.recState.timerHandle){ clearInterval(STATE.recState.timerHandle); STATE.recState.timerHandle=null; }
-  if(STATE.recState.recognition){
-    try{ STATE.recState.recognition.stop(); }catch(e){}
-    STATE.recState.recognition = null;
-  }
+async function analyzeAudioWithAI(){
+  const key = (STATE.aiSharedKey||'').trim();
+  if(!key){ alert('관리자가 아직 AI 연동을 설정하지 않았어요.'); return; }
+  if(!STATE.recState.audioBase64){ alert('업로드된 녹음 파일이 없습니다.'); return; }
+
+  STATE.aiAnalyzing = true;
+  STATE.aiNote = '';
   render();
-  if(STATE.aiSharedKey && (STATE.recState.transcript||'').trim() && !STATE.aiAnalyzing){
-    analyzeTranscriptWithAI();
+
+  const prompt = `오늘 날짜는 ${todayStr()}입니다. 첨부된 오디오는 보험/금융 상담원이 고객과 나눈 전화 통화 녹음입니다.
+다음을 수행하세요:
+1) 통화 내용을 한국어 텍스트로 최대한 정확하게 받아적으세요.
+2) 통화 내용을 분석해서 결과를 판단하세요.
+
+아래 JSON 형식으로만 답변하세요. 다른 설명, 마크다운, 코드블록 없이 순수 JSON 한 줄만 출력하세요.
+{"transcript": "받아적은 통화 전체 내용", "outcome": "visit_confirmed | callback | declined 중 하나", "visitDate": "내방 예정일이 있으면 YYYY-MM-DD, 없으면 null", "reason": "판단 근거를 한 문장으로 요약"}`;
+
+  try{
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(key), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { text: prompt },
+          { inline_data: { mime_type: STATE.recState.audioMime || 'audio/mpeg', data: STATE.recState.audioBase64 } }
+        ] }]
+      })
+    });
+    const data = await res.json();
+    if(data.error){ throw new Error(data.error.message || 'API 오류'); }
+    const cand = (data.candidates||[])[0];
+    const textPart = cand && cand.content && cand.content.parts && cand.content.parts[0];
+    if(!textPart || !textPart.text){ throw new Error('AI 응답을 읽을 수 없습니다.'); }
+    let raw = textPart.text.trim();
+    raw = raw.replace(/^```json\s*|^```\s*|```$/g, '').trim();
+    const parsed = JSON.parse(raw);
+
+    if(parsed.transcript){ STATE.recState.transcript = parsed.transcript; }
+    if(['visit_confirmed','callback','declined'].includes(parsed.outcome)){
+      STATE.recState.outcome = parsed.outcome;
+    }
+    if(parsed.visitDate && /^\d{4}-\d{2}-\d{2}$/.test(parsed.visitDate)){
+      STATE.recState.visitDate = parsed.visitDate;
+    }
+    STATE.aiNote = 'AI 분석 결과: ' + (parsed.reason || '분석 완료') + ' (텍스트와 결과는 저장 전에 꼭 확인해주세요)';
+  }catch(e){
+    STATE.aiNote = 'AI 분석 실패: ' + e.message + ' (파일 형식이나 크기를 확인해주세요)';
+  }finally{
+    STATE.aiAnalyzing = false;
+    render();
   }
 }
 
