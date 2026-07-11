@@ -499,7 +499,7 @@ function renderAdminOverview(){
   const trainees = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved');
   const totalCalls = STATE.calls.length;
   const totalVisits = STATE.calls.filter(c=>c.outcome==='visit_confirmed').length;
-  const converted = trainees.filter(t=>(t.callCount||0)>=GOAL).length;
+  const converted = trainees.filter(t=>monthlyCallCount(t.id)>=GOAL).length;
   const today = todayStr();
   const todaysCalls = STATE.calls.filter(c=>c.outcome==='visit_confirmed' && c.visitDate===today);
   return `
@@ -510,21 +510,21 @@ function renderAdminOverview(){
   </div>` : ''}
   <div class="card">
     <h2>전체 현황</h2>
-    <div class="sub">전환 기준: <b>내방콜 200건</b> 달성 시 수습 → 컨설턴트 전환</div>
+    <div class="sub">당월 목표: <b>내방콜 200건</b></div>
     <div class="stat-row">
       <div class="stat-box"><div class="num">${trainees.length}</div><div class="lbl">진행중 신입</div></div>
-      <div class="stat-box"><div class="num">${converted}</div><div class="lbl">전환 완료</div></div>
+      <div class="stat-box"><div class="num">${converted}</div><div class="lbl">당월 목표 달성</div></div>
       <div class="stat-box"><div class="num">${totalCalls}</div><div class="lbl">누적 콜 건수</div></div>
       <div class="stat-box"><div class="num">${totalVisits}</div><div class="lbl">내방 확정 건수</div></div>
     </div>
   </div>
   <div class="card">
-    <h2>신입별 진행률</h2>
+    <h2>신입별 당월 진행률</h2>
     ${trainees.length===0 ? `<div class="empty">등록된 신입이 없습니다.</div>` : `
-    <div class="table-scroll"><table><thead><tr><th>이름</th><th>팀</th><th>진행률</th><th>콜 건수</th><th>상태</th></tr></thead>
+    <div class="table-scroll"><table><thead><tr><th>이름</th><th>팀</th><th>진행률</th><th>이번달 콜 건수</th><th>상태</th></tr></thead>
     <tbody>
       ${trainees.map(t=>{
-        const cnt = t.callCount||0;
+        const cnt = monthlyCallCount(t.id);
         const pct = Math.min(100, Math.round(cnt/GOAL*100));
         const done = cnt>=GOAL;
         return `<tr>
@@ -535,7 +535,7 @@ function renderAdminOverview(){
             </div>
           </td>
           <td class="muted" style="font-family:var(--mono);">${cnt} / ${GOAL}</td>
-          <td>${done ? '<span class="badge approved">전환완료</span>' : '<span class="badge pending">진행중</span>'}</td>
+          <td>${done ? '<span class="badge approved">목표 달성</span>' : '<span class="badge pending">진행중</span>'}</td>
         </tr>`;
       }).join('')}
     </tbody></table></div>`}
@@ -545,7 +545,7 @@ function renderAdminOverview(){
 /* ================= TRAINEE DASHBOARD ================= */
 function renderTrainee(u){
   const myCalls = STATE.calls.filter(c=>c.userId===u.id).sort((a,b)=>b.createdAt-a.createdAt);
-  const cnt = u.callCount||0;
+  const cnt = monthlyCallCount(u.id);
   const pct = Math.min(100, cnt/GOAL*100);
   const r = 42, c = 2*Math.PI*r;
   const dash = c*pct/100;
@@ -561,8 +561,8 @@ function renderTrainee(u){
   </div>` : ''}
   <div class="grid2">
     <div class="card">
-      <h2>전환 진행률</h2>
-      <div class="sub">내방콜 <b>${GOAL}건</b> 달성 시 수습 → 컨설턴트 전환 (기존: 성과 5건 + 해피콜 150건 → 변경)</div>
+      <h2>당월 목표</h2>
+      <div class="sub">이번 달 내방콜 목표는 <b>${GOAL}건</b>이에요.</div>
       <div class="ring-wrap">
         <svg width="104" height="104" viewBox="0 0 104 104">
           <circle cx="52" cy="52" r="${r}" fill="none" stroke="#EEF1F5" stroke-width="10"/>
@@ -571,7 +571,7 @@ function renderTrainee(u){
         </svg>
         <div class="ring-num">
           <div class="big">${cnt}<span class="small"> / ${GOAL}</span></div>
-          <div class="small">${done? '전환 기준 달성 🎉' : (GOAL-cnt)+'건 남음'}</div>
+          <div class="small">${done? '이번 달 목표 달성 🎉' : (GOAL-cnt)+'건 남음'}</div>
         </div>
       </div>
     </div>
@@ -636,6 +636,14 @@ function renderTrainee(u){
 function todayStr(){
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function monthlyCallCount(userId){
+  const now = new Date();
+  return STATE.calls.filter(c=>{
+    if(c.userId!==userId) return false;
+    const d = new Date(c.createdAt);
+    return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth();
+  }).length;
 }
 function outcomeBadge(o){
   if(o==='visit_confirmed') return '<span class="badge visit">내방 확정</span>';
@@ -949,7 +957,7 @@ async function analyzeAudioWithAI(){
 {"transcript": "받아적은 통화 전체 내용", "outcome": "visit_confirmed | callback | declined 중 하나", "visitDate": "내방 예정일이 있으면 YYYY-MM-DD, 없으면 null", "reason": "판단 근거를 한 문장으로 요약"}`;
 
   try{
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(key), {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -1006,7 +1014,7 @@ ${transcript}
 """`;
 
   try{
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(key), {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
