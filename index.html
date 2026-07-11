@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>포피플 신입 내방콜 전환 프로세스</title>
+<style>
+  :root{
+    --navy:#142850;
+    --navy-2:#1e3a66;
+    --teal:#2E8B84;
+    --teal-light:#e4f2f0;
+    --amber:#E2A63B;
+    --amber-light:#fbf1de;
+    --rose:#C1524B;
+    --rose-light:#fbe9e8;
+    --bg:#F3F5F8;
+    --card:#FFFFFF;
+    --line:#E4E8EE;
+    --ink:#1F2430;
+    --ink-muted:#6B7280;
+    --radius:14px;
+    --mono: 'SFMono-Regular', ui-monospace, 'JetBrains Mono', Consolas, monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Pretendard','Noto Sans KR','Apple SD Gothic Neo',system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  #app{min-height:100vh;display:flex;flex-direction:column;}
+
+  /* top bar */
+  .topbar{
+    background:var(--navy);
+    color:#fff;
+    padding:14px 24px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-0.02em;font-size:16px;}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 4px rgba(46,139,132,0.25);}
+  .tabs{display:flex;gap:4px;flex-wrap:wrap;}
+  .tab-btn{
+    background:transparent;border:none;color:rgba(255,255,255,0.65);
+    padding:8px 14px;border-radius:20px;font-size:13.5px;cursor:pointer;
+    font-weight:600;transition:all .15s;
+  }
+  .tab-btn:hover{color:#fff;background:rgba(255,255,255,0.08);}
+  .tab-btn.active{background:#fff;color:var(--navy);}
+  .who{display:flex;align-items:center;gap:10px;font-size:13px;color:rgba(255,255,255,0.8);}
+  .who b{color:#fff;}
+  .logout-btn{
+    background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);color:#fff;
+    padding:6px 12px;border-radius:8px;font-size:12.5px;cursor:pointer;
+  }
+  .logout-btn:hover{background:rgba(255,255,255,0.2);}
+
+  main{flex:1;padding:28px 24px 60px;max-width:1180px;width:100%;margin:0 auto;}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px;margin-bottom:18px;}
+  .card h2{margin:0 0 4px;font-size:17px;letter-spacing:-0.01em;}
+  .card .sub{color:var(--ink-muted);font-size:13px;margin-bottom:16px;}
+
+  .grid2{display:grid;grid-template-columns:1.1fr 1fr;gap:18px;}
+  @media (max-width:860px){.grid2{grid-template-columns:1fr;}}
+
+  label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-muted);margin:12px 0 6px;}
+  label:first-child{margin-top:0;}
+  input[type=text],input[type=tel],input[type=password],input[type=date],input[type=datetime-local],select,textarea{
+    width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px;
+    font-family:inherit;background:#FAFBFC;color:var(--ink);
+  }
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--teal);outline-offset:1px;background:#fff;}
+  textarea{resize:vertical;min-height:90px;line-height:1.5;}
+
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    background:var(--navy);color:#fff;border:none;padding:10px 18px;border-radius:9px;
+    font-size:13.5px;font-weight:700;cursor:pointer;transition:transform .1s,opacity .15s;
+  }
+  .btn:hover{opacity:0.9;}
+  .btn:active{transform:scale(0.98);}
+  .btn.teal{background:var(--teal);}
+  .btn.amber{background:var(--amber);color:#3a2c05;}
+  .btn.rose{background:var(--rose);}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);}
+  .btn.sm{padding:6px 12px;font-size:12.5px;}
+  .btn:disabled{opacity:0.45;cursor:not-allowed;}
+  .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+
+  .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:700;}
+  .badge.pending{background:var(--amber-light);color:#8a6417;}
+  .badge.approved{background:var(--teal-light);color:#1f5f59;}
+  .badge.rejected{background:var(--rose-light);color:#8a2f2a;}
+  .badge.visit{background:var(--teal-light);color:#1f5f59;}
+  .badge.callback{background:var(--amber-light);color:#8a6417;}
+  .badge.declined{background:var(--rose-light);color:#8a2f2a;}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th{text-align:left;color:var(--ink-muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;
+     padding:8px 10px;border-bottom:1px solid var(--line);}
+  td{padding:10px 10px;border-bottom:1px solid var(--line);vertical-align:top;}
+  tr:last-child td{border-bottom:none;}
+  .muted{color:var(--ink-muted);}
+  .empty{padding:30px 10px;text-align:center;color:var(--ink-muted);font-size:13.5px;}
+
+  /* progress ring */
+  .ring-wrap{display:flex;align-items:center;gap:18px;}
+  .ring-num{font-family:var(--mono);}
+  .ring-num .big{font-size:30px;font-weight:700;color:var(--navy);}
+  .ring-num .small{font-size:13px;color:var(--ink-muted);}
+
+  /* auth screens */
+  .auth-shell{max-width:420px;margin:60px auto;padding:0 16px;}
+  .auth-card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:32px 28px;}
+  .auth-logo{display:flex;align-items:center;gap:10px;margin-bottom:6px;font-weight:800;font-size:19px;color:var(--navy);}
+  .auth-logo .dot{width:10px;height:10px;border-radius:50%;background:var(--teal);}
+  .auth-sub{color:var(--ink-muted);font-size:13px;margin-bottom:22px;}
+  .switch-line{margin-top:16px;font-size:13px;color:var(--ink-muted);text-align:center;}
+  .switch-line a{color:var(--teal);font-weight:700;cursor:pointer;text-decoration:none;}
+  .notice{padding:10px 12px;border-radius:9px;font-size:12.5px;margin-bottom:14px;}
+  .notice.err{background:var(--rose-light);color:#8a2f2a;}
+  .notice.ok{background:var(--teal-light);color:#1f5f59;}
+  .notice.info{background:var(--amber-light);color:#8a6417;}
+
+  /* recording box */
+  .rec-box{border:1px dashed var(--line);border-radius:12px;padding:16px;background:#FAFBFC;}
+  .rec-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .mic-btn{
+    width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;
+    background:var(--rose);color:#fff;font-size:18px;display:flex;align-items:center;justify-content:center;
+    transition:transform .15s;
+  }
+  .mic-btn.recording{animation:pulse 1.2s infinite;}
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(193,82,75,0.45);}
+    70%{box-shadow:0 0 0 14px rgba(193,82,75,0);}
+    100%{box-shadow:0 0 0 0 rgba(193,82,75,0);}
+  }
+  .rec-timer{font-family:var(--mono);font-size:14px;color:var(--ink-muted);}
+  .transcript-box{margin-top:12px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:13.5px;min-height:60px;white-space:pre-wrap;line-height:1.6;}
+  .transcript-box.placeholder{color:var(--ink-muted);}
+
+  /* calendar */
+  .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+  .cal-head .month-label{font-weight:700;font-size:16px;}
+  .cal-nav{display:flex;gap:6px;}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+  .cal-dow{text-align:center;font-size:11.5px;color:var(--ink-muted);font-weight:700;padding-bottom:4px;}
+  .cal-cell{
+    min-height:86px;border:1px solid var(--line);border-radius:9px;padding:6px;background:#FAFBFC;
+    font-size:11.5px;position:relative;
+  }
+  .cal-cell.out{opacity:0.35;}
+  .cal-cell .d-num{font-family:var(--mono);font-size:11.5px;color:var(--ink-muted);margin-bottom:4px;}
+  .cal-entry{
+    background:var(--teal);color:#fff;border-radius:5px;padding:2px 5px;margin-bottom:3px;
+    font-size:10.8px;cursor:pointer;line-height:1.35;font-weight:600;
+  }
+  .cal-entry:hover{opacity:0.85;}
+  .cal-entry.team-b{background:var(--navy-2);}
+  .cal-entry.team-c{background:var(--amber);color:#3a2c05;}
+  .cal-entry.team-d{background:var(--rose);}
+
+  .modal-bg{
+    position:fixed;inset:0;background:rgba(15,20,35,0.5);display:flex;align-items:center;justify-content:center;
+    z-index:50;padding:16px;
+  }
+  .modal{background:#fff;border-radius:16px;padding:24px;max-width:520px;width:100%;max-height:86vh;overflow:auto;}
+  .modal h3{margin:0 0 4px;}
+  .modal .close-x{float:right;cursor:pointer;color:var(--ink-muted);font-size:20px;line-height:1;}
+  .feedback-item{background:#FAFBFC;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:8px;font-size:13px;}
+  .feedback-item .meta{color:var(--ink-muted);font-size:11.5px;margin-bottom:4px;}
+
+  .pill-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+  .pill{
+    padding:6px 12px;border-radius:20px;font-size:12.5px;font-weight:700;cursor:pointer;
+    border:1px solid var(--line);background:#fff;color:var(--ink-muted);
+  }
+  .pill.active-visit{background:var(--teal);color:#fff;border-color:var(--teal);}
+  .pill.active-callback{background:var(--amber);color:#3a2c05;border-color:var(--amber);}
+  .pill.active-declined{background:var(--rose);color:#fff;border-color:var(--rose);}
+
+  .stat-row{display:flex;gap:14px;flex-wrap:wrap;}
+  .stat-box{flex:1;min-width:140px;background:#FAFBFC;border:1px solid var(--line);border-radius:10px;padding:14px;}
+  .stat-box .num{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--navy);}
+  .stat-box .lbl{font-size:12px;color:var(--ink-muted);margin-top:2px;}
+
+  .key-note{font-size:12px;color:var(--ink-muted);background:#FAFBFC;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:14px;line-height:1.6;}
+  .footnote{font-size:11.5px;color:var(--ink-muted);margin-top:6px;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ====== Supabase 연결 설정 ======
+   아래 두 값을 본인의 Supabase 프로젝트 값으로 반드시 교체하세요.
+   Supabase 대시보드 > Project Settings > API 에서 확인 가능합니다. */
+const SUPABASE_URL = 'https://bmkfqdznnyoidsfwyfhl.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_MVuWLSUX_Vqv9D0f25VSZw_ChDXQLh3';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* ---------- storage helpers (Supabase 기반) ---------- */
+async function loadUsers(){
+  try{
+    const { data, error } = await supabase.from('pp_users').select('*');
+    if(error) throw error;
+    return (data||[]).map(r=>({
+      id:r.id, name:r.name, team:r.team, phone:r.phone, password:r.password,
+      role:r.role, status:r.status, joinedAt:Number(r.joined_at), callCount:r.call_count||0
+    }));
+  }catch(e){ console.error('loadUsers error', e); return []; }
+}
+async function saveUsers(list){
+  try{
+    const rows = list.map(u=>({
+      id:u.id, name:u.name, team:u.team, phone:u.phone, password:u.password,
+      role:u.role, status:u.status, joined_at:u.joinedAt, call_count:u.callCount||0
+    }));
+    const { error } = await supabase.from('pp_users').upsert(rows, { onConflict:'id' });
+    if(error) throw error;
+  }catch(e){ console.error('saveUsers error', e); }
+}
+async function loadCalls(){
+  try{
+    const { data, error } = await supabase.from('pp_calls').select('*');
+    if(error) throw error;
+    return (data||[]).map(r=>({
+      id:r.id, userId:r.user_id, userName:r.user_name, team:r.team,
+      createdAt:Number(r.created_at), transcript:r.transcript,
+      outcome:r.outcome, visitDate:r.visit_date, feedback:r.feedback||[]
+    }));
+  }catch(e){ console.error('loadCalls error', e); return []; }
+}
+async function saveCalls(list){
+  try{
+    const rows = list.map(c=>({
+      id:c.id, user_id:c.userId, user_name:c.userName, team:c.team,
+      created_at:c.createdAt, transcript:c.transcript,
+      outcome:c.outcome, visit_date:c.visitDate, feedback:c.feedback||[]
+    }));
+    const { error } = await supabase.from('pp_calls').upsert(rows, { onConflict:'id' });
+    if(error) throw error;
+  }catch(e){ console.error('saveCalls error', e); }
+}
+async function loadSession(){
+  try{ return localStorage.getItem('pp_session'); }catch(e){ return null; }
+}
+async function saveSession(userId){
+  try{
+    if(userId===null){ localStorage.removeItem('pp_session'); }
+    else{ localStorage.setItem('pp_session', userId); }
+  }catch(e){ console.error('saveSession error', e); }
+}
+
+function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
+
+const GOAL = 200;
+const TEAMS = ['1팀','2팀','3팀','4팀'];
+const teamClass = (team)=>{
+  const idx = TEAMS.indexOf(team);
+  return ['','team-b','team-c','team-d'][idx] || '';
+};
+
+/* ---------- global state ---------- */
+let STATE = {
+  users: [],
+  calls: [],
+  currentUserId: null,
+  view: 'login', // login | signup | pending | trainee | admin-approve | admin-overview | calendar
+  authError: '',
+  authInfo: '',
+  calMonthOffset: 0,
+  modalCallId: null,
+  recState: { recording:false, seconds:0, transcript:'', timerHandle:null, recognition:null, outcome:'visit_confirmed', visitDate:'' },
+};
+
+async function init(){
+  STATE.users = await loadUsers();
+  STATE.calls = await loadCalls();
+  if(!STATE.users.some(u=>u.role==='admin')){
+    STATE.users.push({
+      id: uid('u'), name:'admin', team:'-', phone:'-', password:'admin1234',
+      role:'admin', status:'approved', joinedAt: Date.now(), callCount:0
+    });
+    await saveUsers(STATE.users);
+  }
+  const sess = await loadSession();
+  if(sess && STATE.users.some(u=>u.id===sess)){
+    STATE.currentUserId = sess;
+    const u = STATE.users.find(x=>x.id===sess);
+    STATE.view = u.role==='admin' ? 'admin-approve' : (u.status==='approved' ? 'trainee' : 'pending');
+  }
+  render();
+}
+
+function currentUser(){ return STATE.users.find(u=>u.id===STATE.currentUserId) || null; }
+
+/* ---------- render root ---------- */
+function render(){
+  const app = document.getElementById('app');
+  const u = currentUser();
+  if(!u){
+    app.innerHTML = renderAuthShell();
+  } else {
+    app.innerHTML = renderTopbar(u) + '<main>' + renderMain(u) + '</main>';
+  }
+  bindEvents();
+}
+
+/* ================= AUTH SCREENS ================= */
+function renderAuthShell(){
+  if(STATE.view==='signup') return authWrap(renderSignup());
+  return authWrap(renderLogin());
+}
+function authWrap(inner){
+  return `<div class="auth-shell"><div class="auth-card">
+    <div class="auth-logo"><span class="dot"></span>포피플 신입 내방콜 전환 프로세스</div>
+    <div class="auth-sub">신입 컨설턴트 내방유도콜 트레이닝 · 전환 관리 시스템</div>
+    ${inner}
+  </div></div>`;
+}
+function renderLogin(){
+  return `
+    ${STATE.authError ? `<div class="notice err">${STATE.authError}</div>`:''}
+    ${STATE.authInfo ? `<div class="notice info">${STATE.authInfo}</div>`:''}
+    <form id="loginForm">
+      <label>이름</label>
+      <input type="text" id="loginName" placeholder="예: 김민준" required>
+      <label>비밀번호</label>
+      <input type="password" id="loginPw" placeholder="비밀번호" required>
+      <div class="btn-row"><button type="submit" class="btn" style="width:100%">로그인</button></div>
+    </form>
+    <div class="switch-line">아직 계정이 없으신가요? <a id="goSignup">신입 회원가입</a></div>
+  `;
+}
+function renderSignup(){
+  return `
+    ${STATE.authError ? `<div class="notice err">${STATE.authError}</div>`:''}
+    <form id="signupForm">
+      <label>이름</label>
+      <input type="text" id="suName" placeholder="이름" required>
+      <label>소속팀</label>
+      <select id="suTeam" required>${TEAMS.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
+      <label>연락처</label>
+      <input type="tel" id="suPhone" placeholder="010-0000-0000" required>
+      <label>비밀번호</label>
+      <input type="password" id="suPw" placeholder="비밀번호 (4자 이상)" required>
+      <div class="btn-row"><button type="submit" class="btn teal" style="width:100%">가입 요청 보내기</button></div>
+    </form>
+    <div class="key-note">가입 요청 후 관리자 승인이 완료되어야 로그인 및 콜 기록 등록이 가능합니다.</div>
+    <div class="switch-line">이미 계정이 있으신가요? <a id="goLogin">로그인</a></div>
+  `;
+}
+
+/* ================= TOPBAR ================= */
+function renderTopbar(u){
+  const isAdmin = u.role==='admin';
+  const tabs = isAdmin
+    ? [['admin-approve','가입 승인'],['admin-overview','전체 현황'],['calendar','캘린더']]
+    : [['trainee','내 대시보드'],['calendar','캘린더']];
+  return `
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span>포피플 신입 내방콜 전환 프로세스</div>
+    <div class="tabs">
+      ${tabs.map(([v,l])=>`<button class="tab-btn ${STATE.view===v?'active':''}" data-nav="${v}">${l}</button>`).join('')}
+    </div>
+    <div class="who"><b>${u.name}</b>&nbsp;${isAdmin?'· 관리자':'· '+u.team}
+      <button class="logout-btn" id="logoutBtn">로그아웃</button>
+    </div>
+  </div>`;
+}
+
+/* ================= MAIN ROUTER ================= */
+function renderMain(u){
+  if(u.role!=='admin' && u.status!=='approved'){
+    return renderPending(u);
+  }
+  switch(STATE.view){
+    case 'admin-approve': return renderAdminApprove();
+    case 'admin-overview': return renderAdminOverview();
+    case 'calendar': return renderCalendar(u);
+    case 'trainee': default: return u.role==='admin' ? renderAdminApprove() : renderTrainee(u);
+  }
+}
+
+function renderPending(u){
+  return `<div class="card" style="max-width:520px;margin:40px auto;text-align:center;">
+    <h2>승인 대기중입니다</h2>
+    <div class="sub">관리자가 가입 요청을 승인하면 내방콜 기록을 등록할 수 있어요.</div>
+    <span class="badge pending">승인 대기</span>
+  </div>`;
+}
+
+/* ================= ADMIN: 가입 승인 ================= */
+function renderAdminApprove(){
+  const pending = STATE.users.filter(u=>u.role!=='admin' && u.status==='pending');
+  const others = STATE.users.filter(u=>u.role!=='admin' && u.status!=='pending');
+  return `
+  <div class="card">
+    <h2>가입 승인 대기</h2>
+    <div class="sub">신입 컨설턴트의 회원가입 요청을 확인하고 승인/거절하세요.</div>
+    ${pending.length===0 ? `<div class="empty">대기중인 요청이 없습니다.</div>` : `
+    <table><thead><tr><th>이름</th><th>소속팀</th><th>연락처</th><th>신청일</th><th></th></tr></thead>
+    <tbody>
+      ${pending.map(p=>`
+        <tr>
+          <td>${p.name}</td><td>${p.team}</td><td class="muted">${p.phone}</td>
+          <td class="muted">${new Date(p.joinedAt).toLocaleDateString('ko-KR')}</td>
+          <td>
+            <button class="btn teal sm" data-approve="${p.id}">승인</button>
+            <button class="btn rose sm" data-reject="${p.id}">거절</button>
+          </td>
+        </tr>`).join('')}
+    </tbody></table>`}
+  </div>
+  <div class="card">
+    <h2>처리 완료 내역</h2>
+    ${others.length===0 ? `<div class="empty">아직 처리된 계정이 없습니다.</div>` : `
+    <table><thead><tr><th>이름</th><th>소속팀</th><th>상태</th></tr></thead>
+    <tbody>
+      ${others.map(p=>`<tr><td>${p.name}</td><td>${p.team}</td><td><span class="badge ${p.status}">${p.status==='approved'?'승인됨':'거절됨'}</span></td></tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+/* ================= ADMIN: 전체 현황 ================= */
+function renderAdminOverview(){
+  const trainees = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved');
+  const totalCalls = STATE.calls.length;
+  const totalVisits = STATE.calls.filter(c=>c.outcome==='visit_confirmed').length;
+  const converted = trainees.filter(t=>(t.callCount||0)>=GOAL).length;
+  return `
+  <div class="card">
+    <h2>전체 현황</h2>
+    <div class="sub">전환 기준: <b>내방콜 200건</b> 달성 시 수습 → 컨설턴트 전환</div>
+    <div class="stat-row">
+      <div class="stat-box"><div class="num">${trainees.length}</div><div class="lbl">진행중 신입</div></div>
+      <div class="stat-box"><div class="num">${converted}</div><div class="lbl">전환 완료</div></div>
+      <div class="stat-box"><div class="num">${totalCalls}</div><div class="lbl">누적 콜 건수</div></div>
+      <div class="stat-box"><div class="num">${totalVisits}</div><div class="lbl">내방 확정 건수</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>신입별 진행률</h2>
+    ${trainees.length===0 ? `<div class="empty">등록된 신입이 없습니다.</div>` : `
+    <table><thead><tr><th>이름</th><th>팀</th><th>진행률</th><th>콜 건수</th><th>상태</th></tr></thead>
+    <tbody>
+      ${trainees.map(t=>{
+        const cnt = t.callCount||0;
+        const pct = Math.min(100, Math.round(cnt/GOAL*100));
+        const done = cnt>=GOAL;
+        return `<tr>
+          <td>${t.name}</td><td>${t.team}</td>
+          <td style="min-width:160px;">
+            <div style="background:#EEF1F5;border-radius:20px;height:8px;overflow:hidden;">
+              <div style="width:${pct}%;height:100%;background:${done?'var(--teal)':'var(--navy)'};"></div>
+            </div>
+          </td>
+          <td class="muted" style="font-family:var(--mono);">${cnt} / ${GOAL}</td>
+          <td>${done ? '<span class="badge approved">전환완료</span>' : '<span class="badge pending">진행중</span>'}</td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+/* ================= TRAINEE DASHBOARD ================= */
+function renderTrainee(u){
+  const myCalls = STATE.calls.filter(c=>c.userId===u.id).sort((a,b)=>b.createdAt-a.createdAt);
+  const cnt = u.callCount||0;
+  const pct = Math.min(100, cnt/GOAL*100);
+  const r = 42, c = 2*Math.PI*r;
+  const dash = c*pct/100;
+  const done = cnt>=GOAL;
+  const rs = STATE.recState;
+
+  return `
+  <div class="grid2">
+    <div class="card">
+      <h2>전환 진행률</h2>
+      <div class="sub">내방콜 <b>${GOAL}건</b> 달성 시 수습 → 컨설턴트 전환 (기존: 성과 5건 + 해피콜 150건 → 변경)</div>
+      <div class="ring-wrap">
+        <svg width="104" height="104" viewBox="0 0 104 104">
+          <circle cx="52" cy="52" r="${r}" fill="none" stroke="#EEF1F5" stroke-width="10"/>
+          <circle cx="52" cy="52" r="${r}" fill="none" stroke="${done?'#2E8B84':'#142850'}" stroke-width="10"
+            stroke-linecap="round" stroke-dasharray="${dash} ${c}" transform="rotate(-90 52 52)"/>
+        </svg>
+        <div class="ring-num">
+          <div class="big">${cnt}<span class="small"> / ${GOAL}</span></div>
+          <div class="small">${done? '전환 기준 달성 🎉' : (GOAL-cnt)+'건 남음'}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>콜 기록 등록</h2>
+      <div class="sub">통화 녹취를 녹음하면 실시간으로 텍스트 변환됩니다 (Chrome/Edge 브라우저 권장).</div>
+      <div class="rec-box">
+        <div class="rec-controls">
+          <button id="micBtn" class="mic-btn ${rs.recording?'recording':''}">${rs.recording?'■':'●'}</button>
+          <div>
+            <div class="rec-timer" id="recTimer">${formatTime(rs.seconds)}</div>
+            <div class="muted" style="font-size:11.5px;">${rs.recording? '녹음 및 실시간 변환 중...' : '버튼을 눌러 녹음을 시작하세요'}</div>
+          </div>
+        </div>
+        <div class="transcript-box ${rs.transcript? '' : 'placeholder'}" id="transcriptBox">${rs.transcript || '변환된 텍스트가 여기에 표시됩니다. (직접 입력/수정도 가능)'}</div>
+      </div>
+      <label>녹취 텍스트 (직접 수정 가능)</label>
+      <textarea id="transcriptEdit" placeholder="통화 내용을 입력하거나 위 녹음으로 자동 변환하세요">${escapeHtml(rs.transcript)}</textarea>
+
+      <label>통화 결과</label>
+      <div class="pill-row">
+        <div class="pill ${rs.outcome==='visit_confirmed'?'active-visit':''}" data-outcome="visit_confirmed">내방 확정</div>
+        <div class="pill ${rs.outcome==='callback'?'active-callback':''}" data-outcome="callback">재통화 필요</div>
+        <div class="pill ${rs.outcome==='declined'?'active-declined':''}" data-outcome="declined">거절</div>
+      </div>
+      ${rs.outcome==='visit_confirmed' ? `
+        <label>내방 예정일</label>
+        <input type="date" id="visitDateInput" value="${rs.visitDate}">
+      ` : ''}
+      <div class="btn-row">
+        <button class="btn teal" id="saveCallBtn">콜 기록 저장</button>
+        <button class="btn ghost" id="clearCallBtn">초기화</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>내 콜 기록</h2>
+    ${myCalls.length===0 ? `<div class="empty">등록된 콜 기록이 없습니다.</div>` : `
+    <table><thead><tr><th>#</th><th>일시</th><th>결과</th><th>내방일</th><th>녹취 텍스트</th></tr></thead>
+    <tbody>
+      ${myCalls.map((c,i)=>`
+        <tr>
+          <td class="muted" style="font-family:var(--mono);">${myCalls.length-i}</td>
+          <td class="muted">${new Date(c.createdAt).toLocaleString('ko-KR')}</td>
+          <td>${outcomeBadge(c.outcome)}</td>
+          <td class="muted">${c.visitDate||'-'}</td>
+          <td style="max-width:320px;">${(c.transcript||'').slice(0,80)}${(c.transcript||'').length>80?'…':''}</td>
+        </tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+function outcomeBadge(o){
+  if(o==='visit_confirmed') return '<span class="badge visit">내방 확정</span>';
+  if(o==='callback') return '<span class="badge callback">재통화 필요</span>';
+  return '<span class="badge declined">거절</span>';
+}
+function formatTime(s){
+  const m = Math.floor(s/60).toString().padStart(2,'0');
+  const sec = (s%60).toString().padStart(2,'0');
+  return `${m}:${sec}`;
+}
+function escapeHtml(s){
+  return (s||'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+/* ================= CALENDAR ================= */
+function renderCalendar(u){
+  const now = new Date();
+  now.setMonth(now.getMonth()+STATE.calMonthOffset);
+  const year = now.getFullYear(), month = now.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const prevDays = new Date(year, month, 0).getDate();
+
+  const visits = STATE.calls.filter(c=>c.outcome==='visit_confirmed' && c.visitDate);
+  const scoped = u.role==='admin' ? visits : visits.filter(v=>v.team===u.team);
+
+  let cells = [];
+  for(let i=0;i<startWeekday;i++){
+    cells.push({d: prevDays-startWeekday+i+1, out:true});
+  }
+  for(let d=1; d<=daysInMonth; d++){
+    cells.push({d, out:false, dateStr: `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`});
+  }
+  while(cells.length % 7 !==0){ cells.push({d: cells.length, out:true}); }
+
+  const monthLabel = now.toLocaleDateString('ko-KR',{year:'numeric',month:'long'});
+
+  return `
+  <div class="card">
+    <div class="cal-head">
+      <div class="month-label">${monthLabel}</div>
+      <div class="cal-nav">
+        <button class="btn ghost sm" id="calPrev">‹ 이전</button>
+        <button class="btn ghost sm" id="calNext">다음 ›</button>
+      </div>
+    </div>
+    <div class="sub">${u.role==='admin' ? '전체 팀 내방 확정 일정' : u.team+' 내방 확정 일정'} · 담당자 / 팀명 표시, 클릭 시 피드백 작성 가능</div>
+    <div class="cal-grid">
+      ${['일','월','화','수','목','금','토'].map(d=>`<div class="cal-dow">${d}</div>`).join('')}
+      ${cells.map(cell=>{
+        if(cell.out) return `<div class="cal-cell out"><div class="d-num">${cell.d}</div></div>`;
+        const dayVisits = scoped.filter(v=>v.visitDate===cell.dateStr);
+        return `<div class="cal-cell">
+          <div class="d-num">${cell.d}</div>
+          ${dayVisits.map(v=>`<div class="cal-entry ${teamClass(v.team)}" data-open-call="${v.id}">${v.userName} · ${v.team}</div>`).join('')}
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function renderCallModal(){
+  const call = STATE.calls.find(c=>c.id===STATE.modalCallId);
+  if(!call) return '';
+  return `
+  <div class="modal-bg" id="modalBg">
+    <div class="modal">
+      <span class="close-x" id="modalClose">×</span>
+      <h3>${call.userName} · ${call.team}</h3>
+      <div class="sub">내방 예정일: <b>${call.visitDate}</b></div>
+      <label>녹취 텍스트</label>
+      <div class="transcript-box">${escapeHtml(call.transcript)||'(녹취 텍스트 없음)'}</div>
+      <label>피드백</label>
+      ${(call.feedback||[]).length===0 ? `<div class="muted" style="font-size:13px;margin-bottom:8px;">등록된 피드백이 없습니다.</div>` :
+        call.feedback.map(f=>`<div class="feedback-item"><div class="meta">${f.author} · ${new Date(f.at).toLocaleString('ko-KR')}</div>${escapeHtml(f.text)}</div>`).join('')}
+      <textarea id="feedbackInput" placeholder="피드백을 입력하세요"></textarea>
+      <div class="btn-row"><button class="btn teal" id="addFeedbackBtn">피드백 등록</button></div>
+    </div>
+  </div>`;
+}
+
+/* ================= EVENTS ================= */
+function bindEvents(){
+  const app = document.getElementById('app');
+
+  const goSignup = document.getElementById('goSignup');
+  if(goSignup) goSignup.onclick = ()=>{ STATE.view='signup'; STATE.authError=''; render(); };
+  const goLogin = document.getElementById('goLogin');
+  if(goLogin) goLogin.onclick = ()=>{ STATE.view='login'; STATE.authError=''; render(); };
+
+  const loginForm = document.getElementById('loginForm');
+  if(loginForm) loginForm.onsubmit = async (e)=>{
+    e.preventDefault();
+    const name = document.getElementById('loginName').value.trim();
+    const pw = document.getElementById('loginPw').value;
+    const u = STATE.users.find(x=>x.name===name && x.password===pw);
+    if(!u){ STATE.authError='이름 또는 비밀번호가 일치하지 않습니다.'; render(); return; }
+    STATE.currentUserId = u.id;
+    STATE.authError=''; STATE.authInfo='';
+    await saveSession(u.id);
+    STATE.view = u.role==='admin' ? 'admin-approve' : (u.status==='approved' ? 'trainee' : 'pending');
+    render();
+  };
+
+  const signupForm = document.getElementById('signupForm');
+  if(signupForm) signupForm.onsubmit = async (e)=>{
+    e.preventDefault();
+    const name = document.getElementById('suName').value.trim();
+    const team = document.getElementById('suTeam').value;
+    const phone = document.getElementById('suPhone').value.trim();
+    const pw = document.getElementById('suPw').value;
+    if(pw.length<4){ STATE.authError='비밀번호는 4자 이상이어야 합니다.'; render(); return; }
+    if(STATE.users.some(u=>u.name===name)){ STATE.authError='이미 존재하는 이름입니다.'; render(); return; }
+    const newUser = { id: uid('u'), name, team, phone, password:pw, role:'trainee', status:'pending', joinedAt: Date.now(), callCount:0 };
+    STATE.users.push(newUser);
+    await saveUsers(STATE.users);
+    STATE.view='login'; STATE.authError='';
+    STATE.authInfo='가입 요청이 접수되었습니다. 관리자 승인 후 로그인해주세요.';
+    render();
+  };
+
+  const logoutBtn = document.getElementById('logoutBtn');
+  if(logoutBtn) logoutBtn.onclick = async ()=>{
+    STATE.currentUserId = null;
+    await saveSession(null);
+    STATE.view='login';
+    render();
+  };
+
+  app.querySelectorAll('[data-nav]').forEach(btn=>{
+    btn.onclick = ()=>{ STATE.view = btn.getAttribute('data-nav'); render(); };
+  });
+
+  app.querySelectorAll('[data-approve]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const id = btn.getAttribute('data-approve');
+      const u = STATE.users.find(x=>x.id===id);
+      if(u){ u.status='approved'; await saveUsers(STATE.users); render(); }
+    };
+  });
+  app.querySelectorAll('[data-reject]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const id = btn.getAttribute('data-reject');
+      const u = STATE.users.find(x=>x.id===id);
+      if(u){ u.status='rejected'; await saveUsers(STATE.users); render(); }
+    };
+  });
+
+  /* recording */
+  const micBtn = document.getElementById('micBtn');
+  if(micBtn) micBtn.onclick = toggleRecording;
+
+  const transcriptEdit = document.getElementById('transcriptEdit');
+  if(transcriptEdit) transcriptEdit.oninput = (e)=>{ STATE.recState.transcript = e.target.value; };
+
+  app.querySelectorAll('[data-outcome]').forEach(p=>{
+    p.onclick = ()=>{ STATE.recState.outcome = p.getAttribute('data-outcome'); render(); };
+  });
+  const visitDateInput = document.getElementById('visitDateInput');
+  if(visitDateInput) visitDateInput.onchange = (e)=>{ STATE.recState.visitDate = e.target.value; };
+
+  const saveCallBtn = document.getElementById('saveCallBtn');
+  if(saveCallBtn) saveCallBtn.onclick = async ()=>{
+    const u = currentUser();
+    const rs = STATE.recState;
+    if(rs.outcome==='visit_confirmed' && !rs.visitDate){
+      alert('내방 확정 건은 내방 예정일을 입력해주세요.');
+      return;
+    }
+    const call = {
+      id: uid('c'), userId:u.id, userName:u.name, team:u.team,
+      createdAt: Date.now(), transcript: rs.transcript||'',
+      outcome: rs.outcome, visitDate: rs.outcome==='visit_confirmed'? rs.visitDate : null,
+      feedback: []
+    };
+    STATE.calls.push(call);
+    await saveCalls(STATE.calls);
+    u.callCount = (u.callCount||0)+1;
+    await saveUsers(STATE.users);
+    STATE.recState = { recording:false, seconds:0, transcript:'', timerHandle:null, recognition:null, outcome:'visit_confirmed', visitDate:'' };
+    render();
+  };
+  const clearCallBtn = document.getElementById('clearCallBtn');
+  if(clearCallBtn) clearCallBtn.onclick = ()=>{
+    stopRecording();
+    STATE.recState = { recording:false, seconds:0, transcript:'', timerHandle:null, recognition:null, outcome:'visit_confirmed', visitDate:'' };
+    render();
+  };
+
+  /* calendar */
+  const calPrev = document.getElementById('calPrev');
+  if(calPrev) calPrev.onclick = ()=>{ STATE.calMonthOffset--; render(); };
+  const calNext = document.getElementById('calNext');
+  if(calNext) calNext.onclick = ()=>{ STATE.calMonthOffset++; render(); };
+
+  app.querySelectorAll('[data-open-call]').forEach(el=>{
+    el.onclick = ()=>{
+      STATE.modalCallId = el.getAttribute('data-open-call');
+      openModal();
+    };
+  });
+}
+
+function openModal(){
+  const existing = document.getElementById('modalBg');
+  if(existing) existing.remove();
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = renderCallModal();
+  document.body.appendChild(wrapper.firstElementChild);
+  document.getElementById('modalClose').onclick = closeModal;
+  document.getElementById('modalBg').onclick = (e)=>{ if(e.target.id==='modalBg') closeModal(); };
+  document.getElementById('addFeedbackBtn').onclick = async ()=>{
+    const text = document.getElementById('feedbackInput').value.trim();
+    if(!text) return;
+    const call = STATE.calls.find(c=>c.id===STATE.modalCallId);
+    const u = currentUser();
+    call.feedback = call.feedback || [];
+    call.feedback.push({ id: uid('f'), author:u.name, text, at: Date.now() });
+    await saveCalls(STATE.calls);
+    closeModal();
+    render();
+  };
+}
+function closeModal(){
+  const m = document.getElementById('modalBg');
+  if(m) m.remove();
+  STATE.modalCallId = null;
+}
+
+/* ================= RECORDING / STT ================= */
+function toggleRecording(){
+  if(STATE.recState.recording){ stopRecording(); }
+  else{ startRecording(); }
+}
+function startRecording(){
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  STATE.recState.recording = true;
+  STATE.recState.seconds = 0;
+  render();
+  STATE.recState.timerHandle = setInterval(()=>{
+    STATE.recState.seconds++;
+    const t = document.getElementById('recTimer');
+    if(t) t.textContent = formatTime(STATE.recState.seconds);
+  },1000);
+
+  if(!SpeechRec){
+    const box = document.getElementById('transcriptBox');
+    if(box){ box.classList.remove('placeholder'); box.textContent = '이 브라우저는 실시간 음성-텍스트 변환(Web Speech API)을 지원하지 않습니다. Chrome 또는 Edge에서 이용해주세요. 아래 입력창에 직접 텍스트를 입력할 수 있습니다.'; }
+    return;
+  }
+  const recognition = new SpeechRec();
+  recognition.lang = 'ko-KR';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  let finalText = STATE.recState.transcript || '';
+  recognition.onresult = (event)=>{
+    let interim = '';
+    for(let i=event.resultIndex;i<event.results.length;i++){
+      const t = event.results[i][0].transcript;
+      if(event.results[i].isFinal) finalText += t + ' ';
+      else interim += t;
+    }
+    STATE.recState.transcript = finalText;
+    const box = document.getElementById('transcriptBox');
+    if(box){ box.classList.remove('placeholder'); box.textContent = finalText + interim; }
+    const edit = document.getElementById('transcriptEdit');
+    if(edit) edit.value = finalText;
+  };
+  recognition.onerror = (e)=>{
+    const box = document.getElementById('transcriptBox');
+    if(box){ box.classList.remove('placeholder'); box.textContent = (STATE.recState.transcript||'') + '\n[음성 인식 오류: '+e.error+'. 마이크 권한을 확인해주세요.]'; }
+  };
+  recognition.start();
+  STATE.recState.recognition = recognition;
+}
+function stopRecording(){
+  STATE.recState.recording = false;
+  if(STATE.recState.timerHandle){ clearInterval(STATE.recState.timerHandle); STATE.recState.timerHandle=null; }
+  if(STATE.recState.recognition){
+    try{ STATE.recState.recognition.stop(); }catch(e){}
+    STATE.recState.recognition = null;
+  }
+  render();
+}
+
+init();
+</script>
+</body>
+</html>
