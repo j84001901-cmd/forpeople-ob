@@ -1156,9 +1156,11 @@ function openModal(){
   if(deleteCallBtn){
     deleteCallBtn.onclick = async ()=>{
       if(!confirm('이 콜 기록을 삭제하시겠습니까? 되돌릴 수 없습니다.')) return;
-      await deleteCallRecord(STATE.modalCallId);
-      closeModal();
-      render();
+      const ok = await deleteCallRecord(STATE.modalCallId);
+      if(ok){
+        closeModal();
+        render();
+      }
     };
   }
 
@@ -1201,11 +1203,15 @@ function closeDayModal(){
 
 async function deleteCallRecord(callId){
   const call = STATE.calls.find(c=>c.id===callId);
-  if(!call) return;
+  if(!call) return false;
   try{
     const { error } = await supabaseClient.from('pp_calls').delete().eq('id', callId);
     if(error) throw error;
-  }catch(e){ console.error('deleteCallRecord error', e); }
+  }catch(e){
+    console.error('deleteCallRecord error', e);
+    alert('삭제에 실패했습니다: ' + e.message + '\n(Supabase의 pp_calls 테이블에 삭제 권한 정책이 있는지 확인해주세요)');
+    return false;
+  }
   if(call.audioUrl){
     try{
       const path = call.audioUrl.split('/call-recordings/')[1];
@@ -1213,6 +1219,7 @@ async function deleteCallRecord(callId){
     }catch(e){ console.error('audio delete error', e); }
   }
   STATE.calls = STATE.calls.filter(c=>c.id!==callId);
+  return true;
 }
 
 /* ================= AUDIO FILE UPLOAD ================= */
