@@ -319,7 +319,9 @@ let STATE = {
   calTeamFilter: 'all',
   modalCallId: null,
   calDetailDate: null,
-  recState: { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false },
+  adminViewGroup: null,
+  adminViewUserId: null,
+  recState: { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null },
   aiSharedKey: '',
   aiAnalyzing: false,
   aiNote: '',
@@ -494,6 +496,9 @@ function renderAdminAISettings(){
   </div>`;
 }
 function renderAdminOverview(){
+  if(STATE.adminViewUserId) return renderAdminUserCalls(STATE.adminViewUserId);
+  if(STATE.adminViewGroup) return renderAdminGroupMembers(STATE.adminViewGroup);
+
   const trainees = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved');
   const totalCalls = STATE.calls.length;
   const totalVisits = STATE.calls.filter(c=>c.outcome==='visit_confirmed').length;
@@ -518,16 +523,18 @@ function renderAdminOverview(){
   </div>
   <div class="card">
     <h2>그룹별 신입 인원 현황</h2>
+    <div class="sub">그룹을 누르면 소속 팀원 목록을 볼 수 있어요.</div>
     <div class="table-scroll"><table><thead><tr><th>그룹</th><th>신입 인원</th></tr></thead>
     <tbody>
       ${GROUP_NAMES.map(g=>{
         const count = trainees.filter(t=>teamGroup(t.team)===g).length;
-        return `<tr><td>${g}</td><td class="muted" style="font-family:var(--mono);">${count}명</td></tr>`;
+        return `<tr data-open-group="${g}" style="cursor:pointer;"><td>${g}</td><td class="muted" style="font-family:var(--mono);">${count}명</td></tr>`;
       }).join('')}
     </tbody></table></div>
   </div>
   <div class="card">
     <h2>신입별 내방약속 순위 <span class="muted" style="font-size:11.5px;font-weight:400;">(이번 달)</span></h2>
+    <div class="sub">이름을 누르면 해당 팀원의 콜 기록만 볼 수 있어요.</div>
     ${trainees.length===0 ? `<div class="empty">등록된 신입이 없습니다.</div>` : `
     <div class="table-scroll"><table><thead><tr><th>순위</th><th>이름</th><th>팀</th><th>내방 확정 건수</th></tr></thead>
     <tbody>
@@ -535,7 +542,7 @@ function renderAdminOverview(){
         .sort((a,b)=>b.visits-a.visits)
         .map((row,i)=>{
           const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1);
-          return `<tr>
+          return `<tr data-open-user="${row.t.id}" style="cursor:pointer;">
             <td style="font-family:var(--mono);">${medal}</td>
             <td>${row.t.name}</td><td>${row.t.team}</td>
             <td class="muted" style="font-family:var(--mono);">${row.visits}건</td>
@@ -545,6 +552,7 @@ function renderAdminOverview(){
   </div>
   <div class="card">
     <h2>신입별 당월 진행률</h2>
+    <div class="sub">이름을 누르면 해당 팀원의 콜 기록만 볼 수 있어요.</div>
     ${trainees.length===0 ? `<div class="empty">등록된 신입이 없습니다.</div>` : `
     <div class="table-scroll"><table><thead><tr><th>이름</th><th>팀</th><th>진행률</th><th>이번달 콜 건수</th><th>상태</th></tr></thead>
     <tbody>
@@ -552,7 +560,7 @@ function renderAdminOverview(){
         const cnt = monthlyCallCount(t.id);
         const pct = Math.min(100, Math.round(cnt/GOAL*100));
         const done = cnt>=GOAL;
-        return `<tr>
+        return `<tr data-open-user="${t.id}" style="cursor:pointer;">
           <td>${t.name}</td><td>${t.team}</td>
           <td style="min-width:160px;">
             <div style="background:#EEF1F5;border-radius:20px;height:8px;overflow:hidden;">
@@ -563,6 +571,55 @@ function renderAdminOverview(){
           <td>${done ? '<span class="badge approved">목표 달성</span>' : '<span class="badge pending">진행중</span>'}</td>
         </tr>`;
       }).join('')}
+    </tbody></table></div>`}
+  </div>`;
+}
+
+function renderAdminGroupMembers(group){
+  const members = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved' && teamGroup(u.team)===group);
+  return `
+  <div class="card">
+    <button class="btn ghost sm" id="adminBackGroup">‹ 그룹 목록으로</button>
+    <h2 style="margin-top:14px;">${group}</h2>
+    <div class="sub">이 그룹 소속 팀원 목록이에요. 이름을 누르면 콜 기록을 볼 수 있어요.</div>
+  </div>
+  <div class="card">
+    ${members.length===0 ? `<div class="empty">이 그룹에 소속된 팀원이 없습니다.</div>` : `
+    <div class="table-scroll"><table><thead><tr><th>이름</th><th>팀</th><th>당월 콜 건수</th></tr></thead>
+    <tbody>
+      ${members.map(m=>{
+        const cnt = monthlyCallCount(m.id);
+        return `<tr data-open-user="${m.id}" style="cursor:pointer;">
+          <td>${m.name}</td><td>${m.team}</td>
+          <td class="muted" style="font-family:var(--mono);">${cnt} / ${GOAL}</td>
+        </tr>`;
+      }).join('')}
+    </tbody></table></div>`}
+  </div>`;
+}
+
+function renderAdminUserCalls(userId){
+  const user = STATE.users.find(x=>x.id===userId);
+  if(!user) return `<div class="card"><div class="empty">사용자를 찾을 수 없습니다.</div></div>`;
+  const myCalls = STATE.calls.filter(c=>c.userId===userId).sort((a,b)=>b.createdAt-a.createdAt);
+  return `
+  <div class="card">
+    <button class="btn ghost sm" id="adminBackUser">‹ 목록으로</button>
+    <h2 style="margin-top:14px;">${user.name} · ${user.team}</h2>
+    <div class="sub">이 팀원의 콜 기록이에요. 항목을 누르면 녹취 재생과 전체 텍스트를 확인할 수 있어요.</div>
+  </div>
+  <div class="card">
+    ${myCalls.length===0 ? `<div class="empty">등록된 콜 기록이 없습니다.</div>` : `
+    <div class="table-scroll"><table><thead><tr><th>#</th><th>일시</th><th>결과</th><th>내방일</th><th>녹취 텍스트</th></tr></thead>
+    <tbody>
+      ${myCalls.map((c,i)=>`
+        <tr data-open-call="${c.id}" style="cursor:pointer;">
+          <td class="muted" style="font-family:var(--mono);">${myCalls.length-i}</td>
+          <td class="muted">${new Date(c.createdAt).toLocaleString('ko-KR')}</td>
+          <td>${outcomeBadge(c.outcome)}</td>
+          <td class="muted">${c.visitDate||'-'}</td>
+          <td style="max-width:320px;">${(c.transcript||'').slice(0,80)}${(c.transcript||'').length>80?'…':''}</td>
+        </tr>`).join('')}
     </tbody></table></div>`}
   </div>`;
 }
@@ -607,7 +664,8 @@ function renderTrainee(u){
       <div class="rec-box">
         <label style="margin-top:0;">📎 녹음 파일 업로드</label>
         <input type="file" id="audioFileInput" accept="audio/*">
-        ${rs.audioFileName ? `<div class="footnote">선택된 파일: ${escapeHtml(rs.audioFileName)} ${rs.audioUploading ? '· 저장 중...' : (rs.audioUrl ? '· 저장 완료 ✓' : '')}</div>` : ''}
+        ${rs.audioFileName ? `<div class="footnote">선택된 파일: ${escapeHtml(rs.audioFileName)} ${rs.audioDuration!=null ? `· 재생시간 ${Math.round(rs.audioDuration)}초` : ''} ${rs.audioUploading ? '· 저장 중...' : (rs.audioUrl ? '· 저장 완료 ✓' : '')}</div>` : ''}
+        ${rs.audioDuration!=null && rs.audioDuration<30 ? `<div class="footnote" style="color:var(--rose);">⚠️ 30초 이상 통화만 AI 분석이 가능해요. (콜 기록 저장은 가능해요)</div>` : ''}
         ${STATE.aiAnalyzing ? `<div class="footnote">🔄 업로드한 녹음을 분석하는 중이에요. 잠시만 기다려주세요...</div>` : ''}
       </div>
       <label>녹취 텍스트 (자동 변환 결과, 직접 수정 가능)</label>
@@ -900,7 +958,12 @@ function bindEvents(){
   };
 
   app.querySelectorAll('[data-nav]').forEach(btn=>{
-    btn.onclick = ()=>{ STATE.view = btn.getAttribute('data-nav'); render(); };
+    btn.onclick = ()=>{
+      STATE.view = btn.getAttribute('data-nav');
+      STATE.adminViewGroup = null;
+      STATE.adminViewUserId = null;
+      render();
+    };
   });
 
   app.querySelectorAll('[data-approve]').forEach(btn=>{
@@ -935,6 +998,11 @@ function bindEvents(){
       const base64 = await readFileAsBase64(file);
       STATE.recState.audioBase64 = base64;
       STATE.recState.audioMime = resolveAudioMime(file);
+      try{
+        STATE.recState.audioDuration = await getAudioDurationFromFile(file);
+      }catch(durErr){
+        STATE.recState.audioDuration = null;
+      }
       await uploadAudioToStorage(file); // wait for upload so it's guaranteed saved with the record
     }catch(err){
       STATE.recState.audioUploading = false;
@@ -999,13 +1067,13 @@ function bindEvents(){
     await saveCalls(STATE.calls);
     u.callCount = (u.callCount||0)+1;
     await saveUsers(STATE.users);
-    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false };
+    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null };
     STATE.aiNote = '';
     render();
   };
   const clearCallBtn = document.getElementById('clearCallBtn');
   if(clearCallBtn) clearCallBtn.onclick = ()=>{
-    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false };
+    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null };
     STATE.aiNote = '';
     render();
   };
@@ -1039,6 +1107,24 @@ function bindEvents(){
       openDayModal(el.getAttribute('data-open-day'));
     };
   });
+
+  app.querySelectorAll('[data-open-group]').forEach(el=>{
+    el.onclick = ()=>{
+      STATE.adminViewGroup = el.getAttribute('data-open-group');
+      STATE.adminViewUserId = null;
+      render();
+    };
+  });
+  app.querySelectorAll('[data-open-user]').forEach(el=>{
+    el.onclick = ()=>{
+      STATE.adminViewUserId = el.getAttribute('data-open-user');
+      render();
+    };
+  });
+  const adminBackGroup = document.getElementById('adminBackGroup');
+  if(adminBackGroup) adminBackGroup.onclick = ()=>{ STATE.adminViewGroup = null; render(); };
+  const adminBackUser = document.getElementById('adminBackUser');
+  if(adminBackUser) adminBackUser.onclick = ()=>{ STATE.adminViewUserId = null; render(); };
 }
 
 function openModal(){
@@ -1139,6 +1225,23 @@ function readFileAsBase64(file){
   });
 }
 
+function getAudioDurationFromSrc(src){
+  return new Promise((resolve, reject)=>{
+    const audio = document.createElement('audio');
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = ()=> resolve(audio.duration);
+    audio.onerror = ()=> reject(new Error('오디오 길이를 확인할 수 없습니다.'));
+    audio.src = src;
+  });
+}
+function getAudioDurationFromFile(file){
+  const url = URL.createObjectURL(file);
+  return getAudioDurationFromSrc(url).then(
+    d=>{ URL.revokeObjectURL(url); return d; },
+    e=>{ URL.revokeObjectURL(url); throw e; }
+  );
+}
+
 function safeFileExt(name){
   const m = /\.[a-zA-Z0-9]+$/.exec(name||'');
   return m ? m[0] : '';
@@ -1213,6 +1316,10 @@ async function analyzeAudioWithAI(){
   const key = (STATE.aiSharedKey||'').trim();
   if(!key){ alert('관리자가 아직 AI 연동을 설정하지 않았어요.'); return; }
   if(!STATE.recState.audioBase64){ alert('업로드된 녹음 파일이 없습니다.'); return; }
+  if(STATE.recState.audioDuration!=null && STATE.recState.audioDuration < 30){
+    alert('30초 이상 통화만 AI 분석이 가능해요. 통화 시간이 짧아 분석을 건너뜁니다.');
+    return;
+  }
 
   STATE.aiAnalyzing = true;
   STATE.aiNote = '재시도 포함 최대 몇 초 걸릴 수 있어요...';
@@ -1256,6 +1363,14 @@ async function analyzeSavedCall(callId){
   const call = STATE.calls.find(c=>c.id===callId);
   if(!key){ alert('관리자가 아직 AI 연동을 설정하지 않았어요.'); return; }
   if(!call || !call.audioUrl){ alert('녹취 파일이 없습니다.'); return; }
+
+  try{
+    const dur = await getAudioDurationFromSrc(call.audioUrl);
+    if(dur!=null && dur < 30){
+      alert('30초 이상 통화만 AI 분석이 가능해요. 이 녹취는 통화 시간이 짧아 분석할 수 없어요.');
+      return;
+    }
+  }catch(e){ /* 재생시간 확인 실패 시에는 분석을 막지 않음 */ }
 
   STATE.aiAnalyzing = true;
   STATE.aiNote = '재시도 포함 최대 몇 초 걸릴 수 있어요...';
