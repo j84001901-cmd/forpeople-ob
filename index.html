@@ -246,7 +246,8 @@ async function loadCalls(){
     return (data||[]).map(r=>({
       id:r.id, userId:r.user_id, userName:r.user_name, team:r.team,
       createdAt:Number(r.created_at), transcript:r.transcript,
-      outcome:r.outcome, visitDate:r.visit_date, feedback:r.feedback||[], audioUrl:r.audio_url||null
+      outcome:r.outcome, visitDate:r.visit_date, feedback:r.feedback||[], audioUrl:r.audio_url||null,
+      customerName:r.customer_name||null, customerPhone:r.customer_phone||null
     }));
   }catch(e){ console.error('loadCalls error', e); return []; }
 }
@@ -255,7 +256,8 @@ async function saveCalls(list){
     const rows = list.map(c=>({
       id:c.id, user_id:c.userId, user_name:c.userName, team:c.team,
       created_at:c.createdAt, transcript:c.transcript,
-      outcome:c.outcome, visit_date:c.visitDate, feedback:c.feedback||[], audio_url:c.audioUrl||null
+      outcome:c.outcome, visit_date:c.visitDate, feedback:c.feedback||[], audio_url:c.audioUrl||null,
+      customer_name:c.customerName||null, customer_phone:c.customerPhone||null
     }));
     const { error } = await supabaseClient.from('pp_calls').upsert(rows, { onConflict:'id' });
     if(error) throw error;
@@ -321,7 +323,7 @@ let STATE = {
   calDetailDate: null,
   adminViewGroup: null,
   adminViewUserId: null,
-  recState: { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null },
+  recState: { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null, custNameFirst:'', custNameLast:'', custPhoneLast4:'' },
   aiSharedKey: '',
   aiAnalyzing: false,
   aiNote: '',
@@ -610,7 +612,7 @@ function renderAdminUserCalls(userId){
   </div>
   <div class="card">
     ${myCalls.length===0 ? `<div class="empty">등록된 콜 기록이 없습니다.</div>` : `
-    <div class="table-scroll"><table><thead><tr><th>#</th><th>일시</th><th>결과</th><th>내방일</th><th>녹취 텍스트</th></tr></thead>
+    <div class="table-scroll"><table><thead><tr><th>#</th><th>일시</th><th>결과</th><th>내방일</th><th>고객</th><th>녹취 텍스트</th></tr></thead>
     <tbody>
       ${myCalls.map((c,i)=>`
         <tr data-open-call="${c.id}" style="cursor:pointer;">
@@ -618,6 +620,7 @@ function renderAdminUserCalls(userId){
           <td class="muted">${new Date(c.createdAt).toLocaleString('ko-KR')}</td>
           <td>${outcomeBadge(c.outcome)}</td>
           <td class="muted">${c.visitDate||'-'}</td>
+          <td class="muted">${c.customerName||'-'}<br><span style="font-size:11px;">${c.customerPhone||''}</span></td>
           <td style="max-width:320px;">${(c.transcript||'').slice(0,80)}${(c.transcript||'').length>80?'…':''}</td>
         </tr>`).join('')}
     </tbody></table></div>`}
@@ -691,6 +694,20 @@ function renderTrainee(u){
       ${rs.outcome==='visit_confirmed' ? `
         <label>내방 예정일</label>
         <input type="date" id="visitDateInput" value="${rs.visitDate}">
+
+        <label>고객 이름 (첫 글자 · 마지막 글자만)</label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="text" id="custNameFirst" maxlength="1" placeholder="성" value="${escapeHtml(rs.custNameFirst||'')}" style="width:56px;text-align:center;">
+          <span style="font-weight:700;color:var(--ink-muted);">*</span>
+          <input type="text" id="custNameLast" maxlength="1" placeholder="명" value="${escapeHtml(rs.custNameLast||'')}" style="width:56px;text-align:center;">
+          <span class="muted" style="font-size:12px;">캘린더 표시: <b>${escapeHtml(rs.custNameFirst||'?')}*${escapeHtml(rs.custNameLast||'?')}</b></span>
+        </div>
+
+        <label>고객 연락처 (뒤 4자리만)</label>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-family:var(--mono);color:var(--ink-muted);font-size:14px;">010-****-</span>
+          <input type="text" id="custPhoneLast4" maxlength="4" inputmode="numeric" placeholder="0000" value="${escapeHtml(rs.custPhoneLast4||'')}" style="width:100px;">
+        </div>
       ` : ''}
       <div class="btn-row">
         <button class="btn teal" id="saveCallBtn">콜 기록 저장</button>
@@ -703,7 +720,7 @@ function renderTrainee(u){
     <h2>내 콜 기록</h2>
     <div class="sub">항목을 누르면 녹취 재생, 전체 텍스트, 삭제가 가능해요.</div>
     ${myCalls.length===0 ? `<div class="empty">등록된 콜 기록이 없습니다.</div>` : `
-    <div class="table-scroll"><table><thead><tr><th>#</th><th>일시</th><th>결과</th><th>내방일</th><th>녹취 텍스트</th></tr></thead>
+    <div class="table-scroll"><table><thead><tr><th>#</th><th>일시</th><th>결과</th><th>내방일</th><th>고객</th><th>녹취 텍스트</th></tr></thead>
     <tbody>
       ${myCalls.map((c,i)=>`
         <tr data-open-call="${c.id}" style="cursor:pointer;">
@@ -711,6 +728,7 @@ function renderTrainee(u){
           <td class="muted">${new Date(c.createdAt).toLocaleString('ko-KR')}</td>
           <td>${outcomeBadge(c.outcome)}</td>
           <td class="muted">${c.visitDate||'-'}</td>
+          <td class="muted">${c.customerName||'-'}<br><span style="font-size:11px;">${c.customerPhone||''}</span></td>
           <td style="max-width:320px;">${(c.transcript||'').slice(0,80)}${(c.transcript||'').length>80?'…':''}</td>
         </tr>`).join('')}
     </tbody></table></div>`}
@@ -844,7 +862,7 @@ function renderDayModal(){
   const renderGroup = (groups)=> Object.entries(groups).map(([name, list])=>`
     <div class="feedback-item">
       <div class="meta" style="font-weight:700;color:var(--ink);font-size:13px;">${name} · ${list.length}건</div>
-      ${list.map(v=>`<div style="font-size:12.5px;color:var(--teal);cursor:pointer;margin-top:2px;" data-open-call-from-day="${v.id}">· ${v.userName} (${v.team})</div>`).join('')}
+      ${list.map(v=>`<div style="font-size:12.5px;color:var(--teal);cursor:pointer;margin-top:2px;" data-open-call-from-day="${v.id}">· ${v.userName} (${v.team}) — 고객: ${escapeHtml(v.customerName||'-')} / ${escapeHtml(v.customerPhone||'-')}</div>`).join('')}
     </div>`).join('');
 
   return `
@@ -875,6 +893,7 @@ function renderCallModal(){
       <h3>${call.userName} · ${call.team}</h3>
       <div class="sub">${new Date(call.createdAt).toLocaleString('ko-KR')} ${outcomeBadge(call.outcome)}</div>
       ${call.visitDate ? `<div class="sub" style="margin-top:-8px;">내방 예정일: <b>${call.visitDate}</b></div>` : ''}
+      ${call.customerName || call.customerPhone ? `<div class="sub" style="margin-top:-8px;">고객: <b>${escapeHtml(call.customerName||'-')}</b> · <b>${escapeHtml(call.customerPhone||'-')}</b></div>` : ''}
       ${call.audioUrl ? `
         <label>녹취 파일</label>
         <audio controls style="width:100%;" src="${call.audioUrl}"></audio>
@@ -1041,6 +1060,25 @@ function bindEvents(){
   const visitDateInput = document.getElementById('visitDateInput');
   if(visitDateInput) visitDateInput.onchange = (e)=>{ STATE.recState.visitDate = e.target.value; };
 
+  const custNameFirst = document.getElementById('custNameFirst');
+  if(custNameFirst) custNameFirst.oninput = (e)=>{
+    STATE.recState.custNameFirst = e.target.value.slice(0,1);
+    const preview = e.target.parentElement.querySelector('.muted b');
+    if(preview) preview.textContent = `${STATE.recState.custNameFirst||'?'}*${STATE.recState.custNameLast||'?'}`;
+  };
+  const custNameLast = document.getElementById('custNameLast');
+  if(custNameLast) custNameLast.oninput = (e)=>{
+    STATE.recState.custNameLast = e.target.value.slice(0,1);
+    const preview = e.target.parentElement.querySelector('.muted b');
+    if(preview) preview.textContent = `${STATE.recState.custNameFirst||'?'}*${STATE.recState.custNameLast||'?'}`;
+  };
+  const custPhoneLast4 = document.getElementById('custPhoneLast4');
+  if(custPhoneLast4) custPhoneLast4.oninput = (e)=>{
+    const digits = e.target.value.replace(/[^0-9]/g,'').slice(0,4);
+    e.target.value = digits;
+    STATE.recState.custPhoneLast4 = digits;
+  };
+
   const saveCallBtn = document.getElementById('saveCallBtn');
   if(saveCallBtn) saveCallBtn.onclick = async ()=>{
     const u = currentUser();
@@ -1053,27 +1091,39 @@ function bindEvents(){
       alert('녹취 파일 저장이 아직 끝나지 않았어요. 잠시만 기다려주세요.');
       return;
     }
-    if(rs.outcome==='visit_confirmed' && !rs.visitDate){
-      alert('내방 확정 건은 내방 예정일을 입력해주세요.');
-      return;
+    if(rs.outcome==='visit_confirmed'){
+      if(!rs.visitDate){
+        alert('내방 확정 건은 내방 예정일을 입력해주세요.');
+        return;
+      }
+      if(!rs.custNameFirst || !rs.custNameLast){
+        alert('내방 확정 건은 고객 이름(첫 글자·마지막 글자)을 입력해주세요.');
+        return;
+      }
+      if(!rs.custPhoneLast4 || rs.custPhoneLast4.length!==4){
+        alert('내방 확정 건은 고객 연락처 뒤 4자리를 입력해주세요.');
+        return;
+      }
     }
     const call = {
       id: uid('c'), userId:u.id, userName:u.name, team:u.team,
       createdAt: Date.now(), transcript: rs.transcript||'',
       outcome: rs.outcome, visitDate: rs.outcome==='visit_confirmed'? rs.visitDate : null,
+      customerName: rs.outcome==='visit_confirmed' ? `${rs.custNameFirst}*${rs.custNameLast}` : null,
+      customerPhone: rs.outcome==='visit_confirmed' ? `010-****-${rs.custPhoneLast4}` : null,
       feedback: [], audioUrl: rs.audioUrl || null
     };
     STATE.calls.push(call);
     await saveCalls(STATE.calls);
     u.callCount = (u.callCount||0)+1;
     await saveUsers(STATE.users);
-    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null };
+    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null, custNameFirst:'', custNameLast:'', custPhoneLast4:'' };
     STATE.aiNote = '';
     render();
   };
   const clearCallBtn = document.getElementById('clearCallBtn');
   if(clearCallBtn) clearCallBtn.onclick = ()=>{
-    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null };
+    STATE.recState = { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null, custNameFirst:'', custNameLast:'', custPhoneLast4:'' };
     STATE.aiNote = '';
     render();
   };
