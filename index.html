@@ -333,13 +333,6 @@ async function init(){
   STATE.users = await loadUsers();
   STATE.calls = await loadCalls();
   STATE.aiSharedKey = await loadSharedSetting('gemini_api_key');
-  if(!STATE.users.some(u=>u.role==='admin')){
-    STATE.users.push({
-      id: uid('u'), name:'admin', team:'-', phone:'-', password:'admin1234',
-      role:'admin', status:'approved', joinedAt: Date.now(), callCount:0
-    });
-    await saveUsers(STATE.users);
-  }
   const sess = await loadSession();
   if(sess && STATE.users.some(u=>u.id===sess)){
     STATE.currentUserId = sess;
@@ -423,6 +416,7 @@ function renderTopbar(u){
       ${tabs.map(([v,l])=>`<button class="tab-btn ${STATE.view===v?'active':''}" data-nav="${v}">${l}</button>`).join('')}
     </div>
     <div class="who"><b>${u.name}</b>&nbsp;${isAdmin?'· 관리자':'· '+u.team}
+      <button class="logout-btn" id="changePwBtn">비밀번호 변경</button>
       <button class="logout-btn" id="logoutBtn">로그아웃</button>
     </div>
   </div>`;
@@ -976,6 +970,9 @@ function bindEvents(){
     render();
   };
 
+  const changePwBtn = document.getElementById('changePwBtn');
+  if(changePwBtn) changePwBtn.onclick = openPasswordModal;
+
   app.querySelectorAll('[data-nav]').forEach(btn=>{
     btn.onclick = ()=>{
       STATE.view = btn.getAttribute('data-nav');
@@ -1249,6 +1246,50 @@ function closeDayModal(){
   const m = document.getElementById('dayModalBg');
   if(m) m.remove();
   STATE.calDetailDate = null;
+}
+
+function openPasswordModal(){
+  const existing = document.getElementById('pwModalBg');
+  if(existing) existing.remove();
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = `
+  <div class="modal-bg" id="pwModalBg">
+    <div class="modal">
+      <span class="close-x" id="pwModalClose">×</span>
+      <h3>비밀번호 변경</h3>
+      <div id="pwErrorBox"></div>
+      <label>현재 비밀번호</label>
+      <input type="password" id="pwCurrent">
+      <label>새 비밀번호</label>
+      <input type="password" id="pwNew" placeholder="4자 이상">
+      <label>새 비밀번호 확인</label>
+      <input type="password" id="pwConfirm">
+      <div class="btn-row"><button class="btn teal" id="pwSaveBtn">변경하기</button></div>
+    </div>
+  </div>`;
+  document.body.appendChild(wrapper.firstElementChild);
+  document.getElementById('pwModalClose').onclick = closePasswordModal;
+  document.getElementById('pwModalBg').onclick = (e)=>{ if(e.target.id==='pwModalBg') closePasswordModal(); };
+  document.getElementById('pwSaveBtn').onclick = savePasswordChange;
+}
+function closePasswordModal(){
+  const m = document.getElementById('pwModalBg');
+  if(m) m.remove();
+}
+async function savePasswordChange(){
+  const u = currentUser();
+  const cur = document.getElementById('pwCurrent').value;
+  const nw = document.getElementById('pwNew').value;
+  const cf = document.getElementById('pwConfirm').value;
+  const errBox = document.getElementById('pwErrorBox');
+  const showErr = (msg)=>{ errBox.innerHTML = `<div class="notice err">${msg}</div>`; };
+  if(cur !== u.password){ showErr('현재 비밀번호가 일치하지 않습니다.'); return; }
+  if(nw.length<4){ showErr('새 비밀번호는 4자 이상이어야 합니다.'); return; }
+  if(nw !== cf){ showErr('새 비밀번호가 서로 일치하지 않습니다.'); return; }
+  u.password = nw;
+  await saveUsers(STATE.users);
+  closePasswordModal();
+  alert('비밀번호가 변경되었습니다. 다음 로그인부터 새 비밀번호를 사용해주세요.');
 }
 
 async function deleteCallRecord(callId){
