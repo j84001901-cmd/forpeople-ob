@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>포피플 신입 내방콜 전환 프로세스</title>
+<title>포피플 활동내역 관리</title>
 <style>
   :root{
     --navy:#142850;
@@ -39,6 +39,7 @@
     background:var(--bg);
     max-width:480px;
     margin:0 auto;
+    position:relative;
   }
   @media (min-width:520px){
     body{ padding:28px 0; }
@@ -79,6 +80,39 @@
     padding:6px 12px;border-radius:8px;font-size:12.5px;cursor:pointer;
   }
   .logout-btn:hover{background:rgba(255,255,255,0.2);}
+  .hamburger-btn{
+    background:rgba(255,255,255,0.12);border:none;color:#fff;font-size:16px;
+    width:36px;height:36px;border-radius:8px;cursor:pointer;flex-shrink:0;
+  }
+  .hamburger-btn:hover{background:rgba(255,255,255,0.2);}
+
+  .sidebar-backdrop{
+    position:absolute;inset:0;background:rgba(15,20,35,0.45);z-index:40;
+    opacity:0;pointer-events:none;transition:opacity .2s;
+  }
+  .sidebar-backdrop.open{opacity:1;pointer-events:auto;}
+  .sidebar{
+    position:absolute;top:0;left:0;bottom:0;width:250px;background:#fff;z-index:41;
+    transform:translateX(-100%);transition:transform .22s ease;
+    box-shadow:2px 0 20px rgba(0,0,0,0.15);overflow-y:auto;padding:10px 0 20px;
+  }
+  .sidebar.open{transform:translateX(0);}
+  .sidebar-head{
+    display:flex;align-items:center;gap:8px;padding:14px 16px;font-weight:800;color:var(--navy);
+    border-bottom:1px solid var(--line);margin-bottom:6px;
+  }
+  .sidebar-head .dot{width:9px;height:9px;border-radius:50%;background:var(--teal);}
+  .sidebar-head .close-x{margin-left:auto;color:var(--ink-muted);}
+  .side-group-label{
+    padding:16px 16px 6px;font-size:14.5px;font-weight:800;color:var(--navy);
+    letter-spacing:.01em;
+  }
+  .side-item{
+    display:block;width:100%;text-align:left;background:transparent;border:none;
+    padding:10px 20px;font-size:14px;color:var(--ink);cursor:pointer;font-weight:600;
+  }
+  .side-item:hover{background:#F3F5F8;}
+  .side-item.active{background:var(--teal-light);color:#1f5f59;font-weight:700;}
 
   main{flex:1;padding:18px 14px 70px;width:100%;margin:0 auto;}
 
@@ -196,6 +230,13 @@
   .stat-box .num{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--navy);}
   .stat-box .lbl{font-size:12px;color:var(--ink-muted);margin-top:2px;}
 
+  .rank-row{display:flex;align-items:center;gap:10px;padding:8px 6px;border-bottom:1px solid var(--line);font-size:13.5px;}
+  .rank-row:last-child{border-bottom:none;}
+  .rank-row.me{background:var(--teal-light);border-radius:9px;}
+  .rank-medal{width:26px;text-align:center;font-weight:700;color:var(--ink-muted);flex-shrink:0;}
+  .rank-name{flex:1;font-weight:600;}
+  .rank-score{font-family:var(--mono);font-weight:700;color:var(--navy);flex-shrink:0;}
+
   .key-note{font-size:12px;color:var(--ink-muted);background:#FAFBFC;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:14px;line-height:1.6;}
   .footnote{font-size:11.5px;color:var(--ink-muted);margin-top:6px;}
   .today-banner{
@@ -286,6 +327,132 @@ async function saveSharedSetting(key, value){
   }catch(e){ console.error('saveSharedSetting error', e); }
 }
 
+/* ---------- activity process storage ---------- */
+const DEFAULT_MISSIONS = [
+  { id:'m_competitor_card', title:'외부활동 타사 10건 가져오기', target:10, unit:'건',
+    description:'완료기준: UCRM 메인화면 촬영 및 사진 첨부 후 관리자가 확인하여 완료 처리합니다.',
+    proofType:'photo', minPhotos:1, minDurationSec:0, mode:'batch' },
+  { id:'m_flyer', title:'매장 앞 전단지 100개 배포하기', target:100, unit:'장',
+    description:'완료기준: 배포 사진 10장 이상 촬영 및 첨부 후 관리자가 확인하여 완료 처리합니다.',
+    proofType:'photo', minPhotos:10, minDurationSec:0, mode:'batch' },
+  { id:'m_obcall', title:'OB콜 30콜하기', target:30, unit:'콜',
+    description:'완료기준: 통화 1분 이상인 녹취파일을 올릴 때마다 1건씩 카운팅되어 30건을 채웁니다.',
+    proofType:'audio', minPhotos:0, minDurationSec:60, mode:'count' },
+  { id:'m_biz_card', title:'임대 있는 상가에 명함 10개 꽂기', target:10, unit:'개',
+    description:'완료기준: 사진 10장 이상 첨부 후 관리자가 확인하여 완료 처리합니다.',
+    proofType:'photo', minPhotos:10, minDurationSec:0, mode:'batch' },
+];
+async function ensureDefaultMissions(){
+  const missing = DEFAULT_MISSIONS.filter(dm => !STATE.missions.some(m=>m.id===dm.id));
+  if(missing.length===0) return;
+  const toInsert = missing.map(dm => ({ ...dm, active:true, createdAt: Date.now() }));
+  await saveMissionsAll(toInsert);
+  STATE.missions.push(...toInsert);
+}
+
+async function loadMissions(){
+  try{
+    const { data, error } = await supabaseClient.from('pp_missions').select('*').order('created_at', { ascending:true });
+    if(error) throw error;
+    return (data||[]).map(r=>({
+      id:r.id, title:r.title, target:r.target, unit:r.unit, description:r.description,
+      active: r.active!==false, createdAt:Number(r.created_at),
+      proofType: r.proof_type || 'photo', minPhotos: r.min_photos||1, minDurationSec: r.min_duration_sec||0,
+      mode: r.completion_mode || (r.proof_type==='audio' ? 'count' : 'batch')
+    }));
+  }catch(e){ console.error('loadMissions error', e); return []; }
+}
+async function saveMissionsAll(list){
+  try{
+    const rows = list.map(m=>({
+      id:m.id, title:m.title, target:m.target, unit:m.unit, description:m.description,
+      active:m.active, created_at:m.createdAt,
+      proof_type:m.proofType||'photo', min_photos:m.minPhotos||0, min_duration_sec:m.minDurationSec||0,
+      completion_mode: m.mode || (m.proofType==='audio' ? 'count' : 'batch')
+    }));
+    const { error } = await supabaseClient.from('pp_missions').upsert(rows, { onConflict:'id' });
+    if(error) throw error;
+  }catch(e){ console.error('saveMissionsAll error', e); }
+}
+async function deleteMissionFromDb(id){
+  try{
+    const { error } = await supabaseClient.from('pp_missions').delete().eq('id', id);
+    if(error) throw error;
+    return true;
+  }catch(e){ console.error('deleteMissionFromDb error', e); alert('삭제 실패: '+e.message); return false; }
+}
+async function loadProofs(){
+  try{
+    const { data, error } = await supabaseClient.from('pp_activity_proofs').select('*').order('created_at', { ascending:false });
+    if(error) throw error;
+    return (data||[]).map(r=>({
+      id:r.id, missionId:r.mission_id, userId:r.user_id, userName:r.user_name, team:r.team,
+      photoUrls: r.photo_urls || [], audioUrl: r.audio_url || null, durationSec: r.duration_sec || null,
+      quantity:r.quantity||1, note:r.note, status:r.status||'pending',
+      createdAt:Number(r.created_at)
+    }));
+  }catch(e){ console.error('loadProofs error', e); return []; }
+}
+async function insertProof(proof){
+  try{
+    const row = {
+      id:proof.id, mission_id:proof.missionId, user_id:proof.userId, user_name:proof.userName, team:proof.team,
+      photo_urls:proof.photoUrls||[], audio_url:proof.audioUrl||null, duration_sec:proof.durationSec||null,
+      quantity:proof.quantity, note:proof.note, status:proof.status, created_at:proof.createdAt
+    };
+    const { error } = await supabaseClient.from('pp_activity_proofs').insert([row]);
+    if(error) throw error;
+    return true;
+  }catch(e){ console.error('insertProof error', e); alert('인증 등록 실패: '+e.message); return false; }
+}
+async function updateProofStatus(id, status){
+  try{
+    const { error } = await supabaseClient.from('pp_activity_proofs').update({ status }).eq('id', id);
+    if(error) throw error;
+    return true;
+  }catch(e){ console.error('updateProofStatus error', e); alert('처리 실패: '+e.message); return false; }
+}
+async function loadRewards(){
+  try{
+    const { data, error } = await supabaseClient.from('pp_mission_rewards').select('*');
+    if(error) throw error;
+    return (data||[]).map(r=>({ id:r.id, missionId:r.mission_id, userId:r.user_id, rewardedAt:Number(r.rewarded_at) }));
+  }catch(e){ console.error('loadRewards error', e); return []; }
+}
+async function insertReward(missionId, userId){
+  try{
+    const row = { id: uid('rw'), mission_id:missionId, user_id:userId, rewarded_at: Date.now() };
+    const { error } = await supabaseClient.from('pp_mission_rewards').insert([row]);
+    if(error) throw error;
+    return { id:row.id, missionId, userId, rewardedAt:row.rewarded_at };
+  }catch(e){ console.error('insertReward error', e); alert('처리 실패: '+e.message); return null; }
+}
+async function deleteReward(rewardId){
+  try{
+    const { error } = await supabaseClient.from('pp_mission_rewards').delete().eq('id', rewardId);
+    if(error) throw error;
+    return true;
+  }catch(e){ console.error('deleteReward error', e); return false; }
+}
+async function uploadPhotoToStorage(file){
+  const path = `${uid('photo')}${safeFileExt(file.name)}`;
+  const { error } = await supabaseClient.storage.from('activity-photos').upload(path, file, {
+    contentType: file.type || 'image/jpeg', upsert:false
+  });
+  if(error) throw error;
+  const { data } = supabaseClient.storage.from('activity-photos').getPublicUrl(path);
+  return data.publicUrl;
+}
+async function uploadActivityAudioToStorage(file){
+  const path = `${uid('actaudio')}${safeFileExt(file.name)}`;
+  const { error } = await supabaseClient.storage.from('call-recordings').upload(path, file, {
+    contentType: file.type || 'audio/mpeg', upsert:false
+  });
+  if(error) throw error;
+  const { data } = supabaseClient.storage.from('call-recordings').getPublicUrl(path);
+  return data.publicUrl;
+}
+
 function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
 
 const GOAL = 200;
@@ -323,6 +490,15 @@ let STATE = {
   calDetailDate: null,
   adminViewGroup: null,
   adminViewUserId: null,
+  category: 'call', // 'call' | 'activity' (legacy, kept for compatibility)
+  sidebarOpen: false,
+  missions: [],
+  proofs: [],
+  rewards: [],
+  activitySubmitMissionId: null,
+  submitState: { photoFiles:[], photoUrls:[], audioFile:null, audioUrl:null, audioDuration:null, uploading:false, quantity:1, note:'' },
+  activityViewUserId: null,
+  missionFormOpen: false,
   recState: { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null, custNameFirst:'', custNameLast:'', custPhoneLast4:'' },
   aiSharedKey: '',
   aiAnalyzing: false,
@@ -333,11 +509,15 @@ async function init(){
   STATE.users = await loadUsers();
   STATE.calls = await loadCalls();
   STATE.aiSharedKey = await loadSharedSetting('gemini_api_key');
+  STATE.missions = await loadMissions();
+  await ensureDefaultMissions();
+  STATE.proofs = await loadProofs();
+  STATE.rewards = await loadRewards();
   const sess = await loadSession();
   if(sess && STATE.users.some(u=>u.id===sess)){
     STATE.currentUserId = sess;
     const u = STATE.users.find(x=>x.id===sess);
-    STATE.view = u.role==='admin' ? 'admin-overview' : (u.status==='approved' ? 'trainee' : 'pending');
+    STATE.view = (u.role==='admin' || u.status==='approved') ? 'home' : 'pending';
   }
   render();
 }
@@ -351,7 +531,7 @@ function render(){
   if(!u){
     app.innerHTML = renderAuthShell();
   } else {
-    app.innerHTML = renderTopbar(u) + '<main>' + renderMain(u) + '</main>';
+    app.innerHTML = renderTopbar(u) + renderSidebar(u) + '<main>' + renderMain(u) + '</main>';
   }
   bindEvents();
 }
@@ -363,7 +543,7 @@ function renderAuthShell(){
 }
 function authWrap(inner){
   return `<div class="auth-shell"><div class="auth-card">
-    <div class="auth-logo"><span class="dot"></span>포피플 신입 내방콜 전환 프로세스</div>
+    <div class="auth-logo"><span class="dot"></span>포피플 활동내역 관리</div>
     <div class="auth-sub">신입 컨설턴트 내방유도콜 트레이닝 · 전환 관리 시스템</div>
     ${inner}
   </div></div>`;
@@ -406,19 +586,40 @@ function renderSignup(){
 /* ================= TOPBAR ================= */
 function renderTopbar(u){
   const isAdmin = u.role==='admin';
-  const tabs = isAdmin
-    ? [['admin-overview','전체 현황'],['admin-approve','가입 승인'],['calendar','캘린더'],['ai-settings','AI 연동']]
-    : [['trainee','내 대시보드'],['calendar','캘린더']];
   return `
   <div class="topbar">
-    <div class="brand"><span class="dot"></span>포피플 신입 내방콜 전환 프로세스</div>
-    <div class="tabs">
-      ${tabs.map(([v,l])=>`<button class="tab-btn ${STATE.view===v?'active':''}" data-nav="${v}">${l}</button>`).join('')}
-    </div>
+    <button class="hamburger-btn" id="sidebarToggle">☰</button>
+    <div class="brand"><span class="dot"></span>포피플 활동내역 관리</div>
     <div class="who"><b>${u.name}</b>&nbsp;${isAdmin?'· 관리자':'· '+u.team}
       <button class="logout-btn" id="changePwBtn">비밀번호 변경</button>
       <button class="logout-btn" id="logoutBtn">로그아웃</button>
     </div>
+  </div>`;
+}
+
+function renderSidebar(u){
+  const isAdmin = u.role==='admin';
+  const callItems = isAdmin
+    ? [['admin-overview','전체 현황'],['admin-approve','가입 승인'],['calendar','캘린더'],['ai-settings','AI 연동']]
+    : [['trainee','내 대시보드'],['calendar','캘린더']];
+  const activityItems = isAdmin
+    ? [['activity-overview','전체 현황'],['activity-missions','미션 관리'],['activity-approve','인증 승인'],['activity-progress','진행 현황'],['activity-gifts','🎁 기프티콘 발송']]
+    : [['activity-list','미션 목록'],['activity-my','내 인증 기록']];
+
+  const item = ([v,l])=> `<button class="side-item ${STATE.view===v?'active':''}" data-nav="${v}">${l}</button>`;
+
+  return `
+  <div class="sidebar-backdrop ${STATE.sidebarOpen?'open':''}" id="sidebarBackdrop"></div>
+  <div class="sidebar ${STATE.sidebarOpen?'open':''}" id="sidebarDrawer">
+    <div class="sidebar-head">
+      <span class="dot"></span> 메뉴
+      <span class="close-x" id="sidebarClose">×</span>
+    </div>
+    <button class="side-item ${STATE.view==='home'?'active':''}" data-nav="home">🏠 홈</button>
+    <div class="side-group-label">📞 내방유도콜 프로세스</div>
+    ${callItems.map(item).join('')}
+    <div class="side-group-label">🏃 외부활동 프로세스</div>
+    ${activityItems.map(item).join('')}
   </div>`;
 }
 
@@ -428,20 +629,474 @@ function renderMain(u){
     return renderPending(u);
   }
   switch(STATE.view){
+    case 'home': return renderHomeDashboard(u);
     case 'admin-approve': return renderAdminApprove();
     case 'admin-overview': return renderAdminOverview();
     case 'ai-settings': return renderAdminAISettings();
     case 'calendar': return renderCalendar(u);
-    case 'trainee': default: return u.role==='admin' ? renderAdminOverview() : renderTrainee(u);
+    case 'trainee': return u.role==='admin' ? renderAdminOverview() : renderTrainee(u);
+    case 'activity-overview': return renderActivityOverview();
+    case 'activity-missions': return renderActivityMissions();
+    case 'activity-approve': return renderActivityApprove();
+    case 'activity-progress': return renderActivityProgress();
+    case 'activity-gifts': return renderActivityGifts();
+    case 'activity-list': return renderActivityList(u);
+    case 'activity-my': return renderActivityMy(u);
+    default: return renderHomeDashboard(u);
   }
 }
 
+/* ================= HOME DASHBOARD ================= */
 function renderPending(u){
   return `<div class="card" style="max-width:520px;margin:40px auto;text-align:center;">
     <h2>승인 대기중입니다</h2>
     <div class="sub">관리자가 가입 요청을 승인하면 내방콜 기록을 등록할 수 있어요.</div>
     <span class="badge pending">승인 대기</span>
   </div>`;
+}
+
+function renderHomeDashboard(u){
+  const isAdmin = u.role==='admin';
+  const today = todayStr();
+  const trainees = STATE.users.filter(x=>x.role!=='admin' && x.status==='approved');
+
+  const todaysVisits = STATE.calls.filter(c=>c.outcome==='visit_confirmed' && c.visitDate===today &&
+    (isAdmin || c.userId===u.id)).length;
+  const pendingSignups = STATE.users.filter(x=>x.role!=='admin' && x.status==='pending').length;
+  const pendingProofs = STATE.proofs.filter(p=>p.status==='pending').length;
+
+  const medal = (i)=> i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.';
+
+  const callRank = trainees.map(t=>({ t, score: monthlyCallCount(t.id) })).sort((a,b)=>b.score-a.score);
+  const activityRank = trainees.map(t=>({
+    t, score: STATE.missions.filter(m=>missionProgress(m.id,t.id)>=m.target).length
+  })).sort((a,b)=>b.score-a.score);
+
+  const rankRow = (row, i, unitLabel)=> `
+    <div class="rank-row ${row.t.id===u.id?'me':''}">
+      <span class="rank-medal">${medal(i)}</span>
+      <span class="rank-name">${row.t.name} <span class="muted" style="font-size:11px;">${row.t.team}</span></span>
+      <span class="rank-score">${row.score}${unitLabel}</span>
+    </div>`;
+
+  return `
+  ${(isAdmin ? (pendingSignups>0 || pendingProofs>0) : todaysVisits>0) ? `
+  <div class="today-banner">
+    <span class="icon">🔔</span>
+    <span>${isAdmin
+      ? `가입 승인 대기 <b>${pendingSignups}건</b> · 인증 승인 대기 <b>${pendingProofs}건</b>`
+      : `오늘(${today}) 내방 예정 고객이 <b>${todaysVisits}건</b> 있어요!`}</span>
+  </div>` : ''}
+  <div class="card">
+    <h2>👋 ${u.name}님, 안녕하세요</h2>
+    <div class="sub">이번 달 활동 랭킹이에요. 활동한 만큼 순위가 올라가요!</div>
+  </div>
+  <div class="card">
+    <h2>📞 내방유도콜 랭킹 <span class="muted" style="font-size:11px;font-weight:400;">(당월 콜 건수)</span></h2>
+    ${callRank.length===0 ? `<div class="empty">아직 데이터가 없습니다.</div>` : callRank.map((row,i)=>rankRow(row,i,'건')).join('')}
+    <div class="btn-row"><button class="btn teal sm" data-nav="${isAdmin?'admin-overview':'trainee'}">${isAdmin?'전체 현황':'내 대시보드'} 바로가기</button></div>
+  </div>
+  <div class="card">
+    <h2>🏃 외부활동 랭킹 <span class="muted" style="font-size:11px;font-weight:400;">(달성 미션 수)</span></h2>
+    ${activityRank.length===0 ? `<div class="empty">아직 데이터가 없습니다.</div>` : activityRank.map((row,i)=>rankRow(row,i,'개')).join('')}
+    <div class="btn-row"><button class="btn teal sm" data-nav="${isAdmin?'activity-progress':'activity-list'}">${isAdmin?'진행 현황':'미션 목록'} 바로가기</button></div>
+  </div>`;
+}
+
+/* ================= ACTIVITY PROCESS (외부활동) ================= */
+function missionProgress(missionId, userId){
+  const now = new Date();
+  return STATE.proofs.filter(p=>{
+    if(p.missionId!==missionId || p.userId!==userId || p.status!=='approved') return false;
+    const d = new Date(p.createdAt);
+    return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth();
+  }).reduce((sum,p)=>sum+(p.quantity||1),0);
+}
+function getReward(missionId, userId){
+  const now = new Date();
+  const key = `${now.getFullYear()}-${now.getMonth()}`;
+  return STATE.rewards.find(r=>{
+    if(r.missionId!==missionId || r.userId!==userId) return false;
+    const d = new Date(r.rewardedAt);
+    return `${d.getFullYear()}-${d.getMonth()}`===key;
+  });
+}
+
+function renderActivityOverview(){
+  const trainees = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved');
+  const activeMissions = STATE.missions.filter(m=>m.active);
+  const pendingProofs = STATE.proofs.filter(p=>p.status==='pending').length;
+  const now = new Date();
+  const monthlyCompleted = STATE.missions.reduce((sum,m)=> sum + trainees.filter(t=>missionProgress(m.id,t.id)>=m.target).length, 0);
+  const fullyDoneTrainees = trainees.filter(t=> activeMissions.length>0 && activeMissions.every(m=>missionProgress(m.id,t.id)>=m.target)).length;
+
+  return `
+  ${pendingProofs>0 ? `
+  <div class="today-banner">
+    <span class="icon">🔔</span>
+    <span>인증 승인 대기 <b>${pendingProofs}건</b> 있어요.</span>
+  </div>` : ''}
+  <div class="card">
+    <h2>전체 현황</h2>
+    <div class="sub">외부활동 미션은 매달 초기화되는 당월 미션이에요.</div>
+    <div class="stat-row">
+      <div class="stat-box"><div class="num">${trainees.length}</div><div class="lbl">진행중 신입</div></div>
+      <div class="stat-box"><div class="num">${activeMissions.length}</div><div class="lbl">활성 미션 수</div></div>
+      <div class="stat-box"><div class="num">${pendingProofs}</div><div class="lbl">인증 승인 대기</div></div>
+      <div class="stat-box"><div class="num">${fullyDoneTrainees}</div><div class="lbl">전체 미션 완료 인원</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>미션별 현황 <span class="muted" style="font-size:11.5px;font-weight:400;">(당월)</span></h2>
+    ${activeMissions.length===0 ? `<div class="empty">등록된 미션이 없습니다.</div>` : `
+    <div class="table-scroll"><table><thead><tr><th>미션</th><th>목표</th><th>달성 인원</th><th>승인 대기</th></tr></thead>
+    <tbody>
+      ${activeMissions.map(m=>{
+        const doneCnt = trainees.filter(t=>missionProgress(m.id,t.id)>=m.target).length;
+        const pendCnt = STATE.proofs.filter(p=>p.missionId===m.id && p.status==='pending').length;
+        return `<tr>
+          <td>${escapeHtml(m.title)}</td>
+          <td class="muted" style="font-family:var(--mono);">${m.target}${escapeHtml(m.unit)}</td>
+          <td class="muted" style="font-family:var(--mono);">${doneCnt} / ${trainees.length}</td>
+          <td class="muted" style="font-family:var(--mono);">${pendCnt}</td>
+        </tr>`;
+      }).join('')}
+    </tbody></table></div>`}
+  </div>`;
+}
+
+function renderActivityMissions(){
+  return `
+  <div class="card">
+    <h2>미션 만들기</h2>
+    <div class="sub">외부활동 미션의 이름과 목표 수량, 인증 방식을 설정하세요.</div>
+    <label>미션 이름</label>
+    <input type="text" id="missionTitleInput" placeholder="예: 임대 상가 명함 꽂기">
+    <label>목표 수량</label>
+    <input type="text" id="missionTargetInput" inputmode="numeric" placeholder="예: 10">
+    <label>단위</label>
+    <input type="text" id="missionUnitInput" placeholder="예: 개 / 장 / 콜">
+    <label>인증 방식</label>
+    <div class="pill-row">
+      <div class="pill mission-proof-pill active-visit" data-proof-type="photo">📷 사진</div>
+      <div class="pill mission-proof-pill" data-proof-type="audio">🎙️ 녹취파일</div>
+    </div>
+    <div id="photoProofFields">
+      <label>최소 사진 장수</label>
+      <input type="text" id="missionMinPhotosInput" inputmode="numeric" placeholder="예: 10 (1장만 필요하면 1)">
+    </div>
+    <div id="audioProofFields" style="display:none;">
+      <label>최소 통화 시간(초)</label>
+      <input type="text" id="missionMinDurationInput" inputmode="numeric" placeholder="예: 60 (1분)">
+    </div>
+    <label>완료 방식</label>
+    <div class="pill-row">
+      <div class="pill mission-mode-pill active-visit" data-mode="batch">✅ 제출 1회 + 관리자 승인 시 즉시 완료</div>
+    </div>
+    <div class="pill-row">
+      <div class="pill mission-mode-pill" data-mode="count">🔢 제출·승인마다 1건씩 누적</div>
+    </div>
+    <label>설명 (선택)</label>
+    <textarea id="missionDescInput" placeholder="미션 설명 및 완료 기준을 입력하세요"></textarea>
+    <div class="btn-row"><button class="btn teal" id="addMissionBtn">미션 추가</button></div>
+  </div>
+  <div class="card">
+    <h2>등록된 미션</h2>
+    <div class="sub">모든 미션은 매달 초기화되는 당월 미션이에요.</div>
+    ${STATE.missions.length===0 ? `<div class="empty">등록된 미션이 없습니다.</div>` : STATE.missions.map(m=>`
+      <div class="feedback-item" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:700;">${escapeHtml(m.title)} ${m.active?'':'<span class="badge pending">비활성</span>'}</div>
+          <div class="muted" style="font-size:12px;">목표 ${m.target}${escapeHtml(m.unit)} · 인증: ${m.proofType==='audio'?`녹취(${m.minDurationSec}초 이상)`:`사진(${m.minPhotos}장 이상)`} ${m.description? '· '+escapeHtml(m.description):''}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn ghost sm" data-toggle-mission="${m.id}">${m.active?'비활성화':'활성화'}</button>
+          <button class="btn rose sm" data-delete-mission="${m.id}">삭제</button>
+        </div>
+      </div>
+    `).join('')}
+  </div>`;
+}
+
+function renderActivityApprove(){
+  const pending = STATE.proofs.filter(p=>p.status==='pending');
+  const missionTitle = (id)=> (STATE.missions.find(m=>m.id===id)||{}).title || '(삭제된 미션)';
+  return `
+  <div class="card">
+    <h2>인증 승인 대기</h2>
+    <div class="sub">팀원이 제출한 인증을 확인하고 승인/거절하세요.</div>
+    ${pending.length===0 ? `<div class="empty">대기중인 인증이 없습니다.</div>` : pending.map(p=>`
+      <div class="feedback-item">
+        <div class="meta" style="font-weight:700;color:var(--ink);">${escapeHtml(p.userName)} · ${escapeHtml(p.team)} · ${escapeHtml(missionTitle(p.missionId))}</div>
+        <div class="muted" style="font-size:12px;margin-bottom:6px;">${new Date(p.createdAt).toLocaleString('ko-KR')} · 수량 ${p.quantity}${p.note? ' · '+escapeHtml(p.note):''}</div>
+        ${p.audioUrl ? `
+          <audio controls style="width:100%;margin-bottom:8px;" src="${p.audioUrl}"></audio>
+          <div class="muted" style="font-size:11px;margin-bottom:8px;">재생시간: ${p.durationSec||'?'}초</div>
+        ` : (p.photoUrls||[]).length>0 ? `
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+            ${p.photoUrls.map(url=>`<a href="${url}" target="_blank"><img src="${url}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;" /></a>`).join('')}
+          </div>
+        ` : ''}
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn teal sm" data-approve-proof="${p.id}">승인</button>
+          <button class="btn rose sm" data-reject-proof="${p.id}">거절</button>
+        </div>
+      </div>
+    `).join('')}
+  </div>`;
+}
+
+function renderActivityGifts(){
+  const trainees = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved');
+  const rows = [];
+  trainees.forEach(t=>{
+    STATE.missions.forEach(m=>{
+      const prog = missionProgress(m.id, t.id);
+      if(prog>=m.target && !getReward(m.id, t.id)){
+        rows.push({ user:t, mission:m });
+      }
+    });
+  });
+  return `
+  <div class="card">
+    <h2>🎁 기프티콘 발송 대상</h2>
+    <div class="sub">미션을 달성했지만 아직 지급되지 않은 팀원 목록이에요. 카카오톡 선물하기 등으로 직접 보내신 후 "발송 완료"를 눌러주세요.</div>
+    ${rows.length===0 ? `<div class="empty">발송 대기중인 대상이 없습니다.</div>` : `
+    <div class="table-scroll"><table><thead><tr><th>이름</th><th>팀</th><th>연락처</th><th>미션</th><th></th></tr></thead>
+    <tbody>
+      ${rows.map(r=>`<tr>
+        <td>${escapeHtml(r.user.name)}</td>
+        <td>${escapeHtml(r.user.team)}</td>
+        <td class="muted">${escapeHtml(r.user.phone||'-')}</td>
+        <td>${escapeHtml(r.mission.title)}</td>
+        <td><button class="btn teal sm" data-give-reward="${r.mission.id}|${r.user.id}">발송 완료</button></td>
+      </tr>`).join('')}
+    </tbody></table></div>`}
+  </div>`;
+}
+
+function renderActivityProgress(){
+  if(STATE.activityViewUserId){
+    const user = STATE.users.find(x=>x.id===STATE.activityViewUserId);
+    if(!user) return `<div class="card"><div class="empty">사용자를 찾을 수 없습니다.</div></div>`;
+    return `
+    <div class="card">
+      <button class="btn ghost sm" id="activityBackUser">‹ 목록으로</button>
+      <h2 style="margin-top:14px;">${user.name} · ${user.team}</h2>
+    </div>
+    <div class="card">
+      ${STATE.missions.length===0 ? `<div class="empty">등록된 미션이 없습니다.</div>` : STATE.missions.map(m=>{
+        const prog = missionProgress(m.id, user.id);
+        const pct = Math.min(100, Math.round(prog/m.target*100));
+        const done = prog>=m.target;
+        const reward = getReward(m.id, user.id);
+        return `<div class="feedback-item">
+          <div class="meta" style="font-weight:700;color:var(--ink);">${escapeHtml(m.title)}</div>
+          <div style="background:#EEF1F5;border-radius:20px;height:8px;overflow:hidden;margin:6px 0;">
+            <div style="width:${pct}%;height:100%;background:${done?'var(--teal)':'var(--navy)'};"></div>
+          </div>
+          <div class="muted" style="font-size:12px;">${Math.min(prog,m.target)} / ${m.target}${escapeHtml(m.unit)} ${done?'· 달성 🎉':''}</div>
+          ${done ? `<div class="btn-row" style="margin-top:8px;">
+            ${reward ? `<span class="badge approved">지급 완료</span> <button class="btn ghost sm" data-unreward="${reward.id}">취소</button>`
+                     : `<button class="btn teal sm" data-give-reward="${m.id}|${user.id}">지급 완료 처리</button>`}
+          </div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+  const trainees = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved');
+  return `
+  <div class="card">
+    <h2>진행 현황</h2>
+    <div class="sub">이름을 누르면 미션별 상세 진행률을 볼 수 있어요.</div>
+    ${trainees.length===0 ? `<div class="empty">등록된 신입이 없습니다.</div>` : `
+    <div class="table-scroll"><table><thead><tr><th>이름</th><th>팀</th><th>완료 미션 수</th></tr></thead>
+    <tbody>
+      ${trainees.map(t=>{
+        const doneCount = STATE.missions.filter(m=>missionProgress(m.id,t.id)>=m.target).length;
+        return `<tr data-open-activity-user="${t.id}" style="cursor:pointer;"><td>${t.name}</td><td>${t.team}</td><td class="muted" style="font-family:var(--mono);">${doneCount} / ${STATE.missions.length}</td></tr>`;
+      }).join('')}
+    </tbody></table></div>`}
+  </div>`;
+}
+
+function renderActivityList(u){
+  const activeMissions = STATE.missions.filter(m=>m.active);
+  return `
+  <div class="card">
+    <h2>외부활동 미션</h2>
+    <div class="sub">미션을 완료하면 사진과 수량을 인증해서 제출하세요. 관리자가 확인 후 승인해요.</div>
+  </div>
+  ${activeMissions.length===0 ? `<div class="card"><div class="empty">등록된 미션이 없습니다.</div></div>` : activeMissions.map(m=>{
+    const prog = missionProgress(m.id, u.id);
+    const pct = Math.min(100, Math.round(prog/m.target*100));
+    const done = prog>=m.target;
+    const pendingCnt = STATE.proofs.filter(p=>p.missionId===m.id && p.userId===u.id && p.status==='pending').length;
+    return `
+    <div class="card">
+      <h2 style="font-size:15px;">${escapeHtml(m.title)} ${done?'<span class="badge approved">달성 🎉</span>':''}</h2>
+      <div class="sub">${escapeHtml(m.description||'')}</div>
+      <div style="background:#EEF1F5;border-radius:20px;height:8px;overflow:hidden;margin:6px 0;">
+        <div style="width:${pct}%;height:100%;background:${done?'var(--teal)':'var(--navy)'};"></div>
+      </div>
+      <div class="muted" style="font-size:12px;">${Math.min(prog,m.target)} / ${m.target}${escapeHtml(m.unit)} ${pendingCnt>0?`· 승인 대기중 ${pendingCnt}건`:''}</div>
+      <div class="btn-row"><button class="btn teal sm" data-submit-mission="${m.id}">${m.proofType==='audio'?'🎙️ 녹취 파일 제출':'📷 인증 사진 제출'}</button></div>
+    </div>`;
+  }).join('')}`;
+}
+
+function renderActivityMy(u){
+  const mine = STATE.proofs.filter(p=>p.userId===u.id).sort((a,b)=>b.createdAt-a.createdAt);
+  const missionTitle = (id)=> (STATE.missions.find(m=>m.id===id)||{}).title || '(삭제된 미션)';
+  const statusBadge = (s)=> s==='approved' ? '<span class="badge approved">승인됨</span>' : s==='rejected' ? '<span class="badge rejected">거절됨</span>' : '<span class="badge pending">대기중</span>';
+  const proofLink = (p)=> p.audioUrl ? `<a href="${p.audioUrl}" target="_blank">녹취 듣기</a>` : (p.photoUrls||[]).length>0 ? `<a href="${p.photoUrls[0]}" target="_blank">사진 ${p.photoUrls.length}장</a>` : '-';
+  return `
+  <div class="card">
+    <h2>내 인증 기록</h2>
+    ${mine.length===0 ? `<div class="empty">제출한 인증이 없습니다.</div>` : `
+    <div class="table-scroll"><table><thead><tr><th>미션</th><th>수량</th><th>상태</th><th>일시</th><th>증빙</th></tr></thead>
+    <tbody>
+      ${mine.map(p=>`<tr>
+        <td>${escapeHtml(missionTitle(p.missionId))}</td>
+        <td class="muted">${p.quantity}</td>
+        <td>${statusBadge(p.status)}</td>
+        <td class="muted">${new Date(p.createdAt).toLocaleString('ko-KR')}</td>
+        <td>${proofLink(p)}</td>
+      </tr>`).join('')}
+    </tbody></table></div>`}
+  </div>`;
+}
+
+function renderSubmitModal(){
+  const missionId = STATE.activitySubmitMissionId;
+  if(!missionId) return '';
+  const m = STATE.missions.find(x=>x.id===missionId);
+  if(!m) return '';
+  const ss = STATE.submitState;
+  const isAudio = m.proofType==='audio';
+  return `
+  <div class="modal-bg" id="submitModalBg">
+    <div class="modal">
+      <span class="close-x" id="submitModalClose">×</span>
+      <h3>${escapeHtml(m.title)} 인증</h3>
+      <div class="sub">목표 ${m.target}${escapeHtml(m.unit)} · 인증: ${isAudio?`녹취파일 (${m.minDurationSec}초 이상)`:`사진 ${m.minPhotos}장 이상`}</div>
+      ${isAudio ? `
+        <label>녹취 파일 업로드</label>
+        <input type="file" id="proofAudioInput" accept="audio/*">
+        ${ss.audioFile ? `<div class="footnote">선택된 파일: ${escapeHtml(ss.audioFile.name)} ${ss.audioDuration!=null?`· ${Math.round(ss.audioDuration)}초`:''} ${ss.uploading?'· 업로드 중...':(ss.audioUrl?'· 업로드 완료 ✓':'')}</div>` : ''}
+        ${ss.audioDuration!=null && ss.audioDuration < m.minDurationSec ? `<div class="footnote" style="color:var(--rose);">⚠️ ${m.minDurationSec}초 이상인 통화만 인증 가능해요.</div>` : ''}
+      ` : `
+        <label>인증 사진 (${m.minPhotos}장 이상 선택)</label>
+        <input type="file" id="proofPhotoInput" accept="image/*" multiple>
+        ${ss.photoFiles.length>0 ? `<div class="footnote">선택된 사진: ${ss.photoFiles.length}장 ${ss.uploading?'· 업로드 중...':(ss.photoUrls.length===ss.photoFiles.length?'· 업로드 완료 ✓':'')}</div>` : ''}
+        ${ss.photoFiles.length>0 && ss.photoFiles.length<m.minPhotos ? `<div class="footnote" style="color:var(--rose);">⚠️ 최소 ${m.minPhotos}장 이상 첨부해야 해요.</div>` : ''}
+      `}
+      <div class="footnote">${m.mode==='batch' ? `이 미션은 이 제출 1건이 관리자 승인되면 바로 완료돼요.` : `이 미션은 승인될 때마다 1건씩 누적돼요. (목표 ${m.target}${escapeHtml(m.unit)})`}</div>
+      <label>메모 (선택)</label>
+      <textarea id="proofNoteInput" placeholder="메모를 입력하세요">${escapeHtml(ss.note)}</textarea>
+      <div class="btn-row"><button class="btn teal" id="submitProofBtn" ${ss.uploading?'disabled':''}>${ss.uploading?'업로드 중...':'제출하기'}</button></div>
+    </div>
+  </div>`;
+}
+function openSubmitModal(missionId){
+  STATE.activitySubmitMissionId = missionId;
+  STATE.submitState = { photoFiles:[], photoUrls:[], audioFile:null, audioUrl:null, audioDuration:null, uploading:false, quantity:1, note:'' };
+  reopenSubmitModal();
+}
+function reopenSubmitModal(){
+  const existing = document.getElementById('submitModalBg');
+  if(existing) existing.remove();
+  if(!STATE.activitySubmitMissionId) return;
+  const m = STATE.missions.find(x=>x.id===STATE.activitySubmitMissionId);
+  if(!m) return;
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = renderSubmitModal();
+  if(!wrapper.firstElementChild) return;
+  document.body.appendChild(wrapper.firstElementChild);
+  document.getElementById('submitModalClose').onclick = closeSubmitModal;
+  document.getElementById('submitModalBg').onclick = (e)=>{ if(e.target.id==='submitModalBg') closeSubmitModal(); };
+
+  const photoInput = document.getElementById('proofPhotoInput');
+  if(photoInput) photoInput.onchange = async (e)=>{
+    const files = Array.from(e.target.files||[]);
+    if(files.length===0) return;
+    for(const f of files){
+      if(f.size > 8*1024*1024){ alert('사진 한 장당 용량은 8MB 이하여야 해요.'); return; }
+    }
+    STATE.submitState.photoFiles = files;
+    STATE.submitState.photoUrls = [];
+    STATE.submitState.uploading = true;
+    reopenSubmitModal();
+    try{
+      const urls = [];
+      for(const f of files){ urls.push(await uploadPhotoToStorage(f)); }
+      STATE.submitState.photoUrls = urls;
+    }catch(err){
+      alert('업로드 실패: ' + err.message);
+    }finally{
+      STATE.submitState.uploading = false;
+      reopenSubmitModal();
+    }
+  };
+
+  const audioInput = document.getElementById('proofAudioInput');
+  if(audioInput) audioInput.onchange = async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    if(file.size > 15*1024*1024){ alert('파일이 너무 큽니다 (15MB 이하로 올려주세요).'); e.target.value=''; return; }
+    STATE.submitState.audioFile = file;
+    STATE.submitState.uploading = true;
+    reopenSubmitModal();
+    try{
+      STATE.submitState.audioDuration = await getAudioDurationFromFile(file).catch(()=>null);
+      STATE.submitState.audioUrl = await uploadActivityAudioToStorage(file);
+    }catch(err){
+      alert('업로드 실패: ' + err.message);
+    }finally{
+      STATE.submitState.uploading = false;
+      reopenSubmitModal();
+    }
+  };
+
+  const noteInput = document.getElementById('proofNoteInput');
+  noteInput.oninput = (e)=>{ STATE.submitState.note = e.target.value; };
+  document.getElementById('submitProofBtn').onclick = submitProof;
+}
+function closeSubmitModal(){
+  const m = document.getElementById('submitModalBg');
+  if(m) m.remove();
+  STATE.activitySubmitMissionId = null;
+}
+async function submitProof(){
+  const u = currentUser();
+  const ss = STATE.submitState;
+  const m = STATE.missions.find(x=>x.id===STATE.activitySubmitMissionId);
+  if(!m) return;
+  const isAudio = m.proofType==='audio';
+  if(isAudio){
+    if(!ss.audioUrl){ alert('녹취 파일을 업로드해주세요.'); return; }
+    if(ss.audioDuration!=null && ss.audioDuration < m.minDurationSec){
+      alert(`${m.minDurationSec}초 이상인 통화만 인증할 수 있어요.`);
+      return;
+    }
+  }else{
+    if(ss.photoUrls.length===0){ alert('인증 사진을 업로드해주세요.'); return; }
+    if(ss.photoUrls.length < m.minPhotos){ alert(`최소 ${m.minPhotos}장 이상의 사진이 필요해요.`); return; }
+  }
+  const qty = m.mode==='batch' ? m.target : 1;
+  const proof = {
+    id: uid('proof'), missionId: m.id, userId:u.id, userName:u.name, team:u.team,
+    photoUrls: isAudio ? [] : ss.photoUrls,
+    audioUrl: isAudio ? ss.audioUrl : null,
+    durationSec: isAudio ? Math.round(ss.audioDuration||0) : null,
+    quantity: qty, note: ss.note||'', status:'pending', createdAt: Date.now()
+  };
+  const ok = await insertProof(proof);
+  if(!ok) return;
+  STATE.proofs.unshift(proof);
+  closeSubmitModal();
+  render();
+  alert('인증이 제출되었습니다. 관리자 승인을 기다려주세요.');
 }
 
 /* ================= ADMIN: 가입 승인 ================= */
@@ -941,7 +1596,7 @@ function bindEvents(){
     STATE.currentUserId = u.id;
     STATE.authError=''; STATE.authInfo='';
     await saveSession(u.id);
-    STATE.view = u.role==='admin' ? 'admin-overview' : (u.status==='approved' ? 'trainee' : 'pending');
+    STATE.view = (u.role==='admin' || u.status==='approved') ? 'home' : 'pending';
     render();
   };
 
@@ -973,11 +1628,20 @@ function bindEvents(){
   const changePwBtn = document.getElementById('changePwBtn');
   if(changePwBtn) changePwBtn.onclick = openPasswordModal;
 
+  const sidebarToggle = document.getElementById('sidebarToggle');
+  if(sidebarToggle) sidebarToggle.onclick = ()=>{ STATE.sidebarOpen = true; render(); };
+  const sidebarClose = document.getElementById('sidebarClose');
+  if(sidebarClose) sidebarClose.onclick = ()=>{ STATE.sidebarOpen = false; render(); };
+  const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+  if(sidebarBackdrop) sidebarBackdrop.onclick = ()=>{ STATE.sidebarOpen = false; render(); };
+
   app.querySelectorAll('[data-nav]').forEach(btn=>{
     btn.onclick = ()=>{
       STATE.view = btn.getAttribute('data-nav');
       STATE.adminViewGroup = null;
       STATE.adminViewUserId = null;
+      STATE.activityViewUserId = null;
+      STATE.sidebarOpen = false;
       render();
     };
   });
@@ -1172,6 +1836,104 @@ function bindEvents(){
   if(adminBackGroup) adminBackGroup.onclick = ()=>{ STATE.adminViewGroup = null; render(); };
   const adminBackUser = document.getElementById('adminBackUser');
   if(adminBackUser) adminBackUser.onclick = ()=>{ STATE.adminViewUserId = null; render(); };
+
+  /* ---- activity process bindings ---- */
+  const addMissionBtn = document.getElementById('addMissionBtn');
+  if(addMissionBtn) addMissionBtn.onclick = async ()=>{
+    const title = (document.getElementById('missionTitleInput').value||'').trim();
+    const target = parseInt(document.getElementById('missionTargetInput').value,10);
+    const unit = (document.getElementById('missionUnitInput').value||'').trim() || '개';
+    const description = (document.getElementById('missionDescInput').value||'').trim();
+    const proofTypeEl = document.querySelector('.mission-proof-pill.active-visit');
+    const proofType = proofTypeEl ? proofTypeEl.getAttribute('data-proof-type') : 'photo';
+    const modeEl = document.querySelector('.mission-mode-pill.active-visit');
+    const mode = modeEl ? modeEl.getAttribute('data-mode') : (proofType==='audio' ? 'count' : 'batch');
+    const minPhotos = proofType==='photo' ? (parseInt(document.getElementById('missionMinPhotosInput').value,10)||1) : 0;
+    const minDurationSec = proofType==='audio' ? (parseInt(document.getElementById('missionMinDurationInput').value,10)||0) : 0;
+    if(!title){ alert('미션 이름을 입력해주세요.'); return; }
+    if(!target || target<=0){ alert('목표 수량을 숫자로 입력해주세요.'); return; }
+    const mission = { id: uid('mis'), title, target, unit, description, active:true, createdAt: Date.now(), proofType, minPhotos, minDurationSec, mode };
+    STATE.missions.push(mission);
+    await saveMissionsAll(STATE.missions);
+    render();
+  };
+  app.querySelectorAll('.mission-proof-pill').forEach(p=>{
+    p.onclick = ()=>{
+      app.querySelectorAll('.mission-proof-pill').forEach(x=>x.classList.remove('active-visit'));
+      p.classList.add('active-visit');
+      const type = p.getAttribute('data-proof-type');
+      const photoFields = document.getElementById('photoProofFields');
+      const audioFields = document.getElementById('audioProofFields');
+      if(photoFields) photoFields.style.display = type==='photo' ? '' : 'none';
+      if(audioFields) audioFields.style.display = type==='audio' ? '' : 'none';
+      // 인증 방식에 맞는 완료 방식 기본값 자동 선택
+      app.querySelectorAll('.mission-mode-pill').forEach(x=>x.classList.remove('active-visit'));
+      const suggested = type==='audio' ? 'count' : 'batch';
+      const suggestedEl = app.querySelector(`.mission-mode-pill[data-mode="${suggested}"]`);
+      if(suggestedEl) suggestedEl.classList.add('active-visit');
+    };
+  });
+  app.querySelectorAll('.mission-mode-pill').forEach(p=>{
+    p.onclick = ()=>{
+      app.querySelectorAll('.mission-mode-pill').forEach(x=>x.classList.remove('active-visit'));
+      p.classList.add('active-visit');
+    };
+  });
+  app.querySelectorAll('[data-toggle-mission]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const id = btn.getAttribute('data-toggle-mission');
+      const m = STATE.missions.find(x=>x.id===id);
+      if(m){ m.active = !m.active; await saveMissionsAll(STATE.missions); render(); }
+    };
+  });
+  app.querySelectorAll('[data-delete-mission]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      if(!confirm('이 미션을 삭제하시겠습니까? 관련 인증 기록은 남아있지만 미션명이 사라져요.')) return;
+      const id = btn.getAttribute('data-delete-mission');
+      const ok = await deleteMissionFromDb(id);
+      if(ok){ STATE.missions = STATE.missions.filter(x=>x.id!==id); render(); }
+    };
+  });
+
+  app.querySelectorAll('[data-approve-proof]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const id = btn.getAttribute('data-approve-proof');
+      const ok = await updateProofStatus(id, 'approved');
+      if(ok){ const p = STATE.proofs.find(x=>x.id===id); if(p) p.status='approved'; render(); }
+    };
+  });
+  app.querySelectorAll('[data-reject-proof]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const id = btn.getAttribute('data-reject-proof');
+      const ok = await updateProofStatus(id, 'rejected');
+      if(ok){ const p = STATE.proofs.find(x=>x.id===id); if(p) p.status='rejected'; render(); }
+    };
+  });
+
+  app.querySelectorAll('[data-open-activity-user]').forEach(el=>{
+    el.onclick = ()=>{ STATE.activityViewUserId = el.getAttribute('data-open-activity-user'); render(); };
+  });
+  const activityBackUser = document.getElementById('activityBackUser');
+  if(activityBackUser) activityBackUser.onclick = ()=>{ STATE.activityViewUserId = null; render(); };
+
+  app.querySelectorAll('[data-give-reward]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const [missionId, userId] = btn.getAttribute('data-give-reward').split('|');
+      const reward = await insertReward(missionId, userId);
+      if(reward){ STATE.rewards.push(reward); render(); }
+    };
+  });
+  app.querySelectorAll('[data-unreward]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const id = btn.getAttribute('data-unreward');
+      const ok = await deleteReward(id);
+      if(ok){ STATE.rewards = STATE.rewards.filter(r=>r.id!==id); render(); }
+    };
+  });
+
+  app.querySelectorAll('[data-submit-mission]').forEach(btn=>{
+    btn.onclick = ()=>{ openSubmitModal(btn.getAttribute('data-submit-mission')); };
+  });
 }
 
 function openModal(){
