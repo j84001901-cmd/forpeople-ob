@@ -328,28 +328,6 @@ async function saveSharedSetting(key, value){
 }
 
 /* ---------- activity process storage ---------- */
-const DEFAULT_MISSIONS = [
-  { id:'m_competitor_card', title:'외부활동 타사 10건 가져오기', target:10, unit:'건',
-    description:'완료기준: UCRM 메인화면 촬영 및 사진 첨부 후 관리자가 확인하여 완료 처리합니다.',
-    proofType:'photo', minPhotos:1, minDurationSec:0, mode:'batch' },
-  { id:'m_flyer', title:'매장 앞 전단지 100개 배포하기', target:100, unit:'장',
-    description:'완료기준: 배포 사진 10장 이상 촬영 및 첨부 후 관리자가 확인하여 완료 처리합니다.',
-    proofType:'photo', minPhotos:10, minDurationSec:0, mode:'batch' },
-  { id:'m_obcall', title:'OB콜 30콜하기', target:30, unit:'콜',
-    description:'완료기준: 통화 1분 이상인 녹취파일을 올릴 때마다 1건씩 카운팅되어 30건을 채웁니다.',
-    proofType:'audio', minPhotos:0, minDurationSec:60, mode:'count' },
-  { id:'m_biz_card', title:'임대 있는 상가에 명함 10개 꽂기', target:10, unit:'개',
-    description:'완료기준: 사진 10장 이상 첨부 후 관리자가 확인하여 완료 처리합니다.',
-    proofType:'photo', minPhotos:10, minDurationSec:0, mode:'batch' },
-];
-async function ensureDefaultMissions(){
-  const missing = DEFAULT_MISSIONS.filter(dm => !STATE.missions.some(m=>m.id===dm.id));
-  if(missing.length===0) return;
-  const toInsert = missing.map(dm => ({ ...dm, active:true, createdAt: Date.now() }));
-  await saveMissionsAll(toInsert);
-  STATE.missions.push(...toInsert);
-}
-
 async function loadMissions(){
   try{
     const { data, error } = await supabaseClient.from('pp_missions').select('*').order('created_at', { ascending:true });
@@ -454,6 +432,13 @@ async function uploadActivityAudioToStorage(file){
 }
 
 function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
+function isStoreAccount(u){ return !!u && /^p\d{6}$/.test(u.name||''); }
+
+async function hashPassword(pw){
+  const enc = new TextEncoder().encode(pw);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
 
 const GOAL = 200;
 const GROUPS = {
@@ -462,7 +447,7 @@ const GROUPS = {
   '평택그룹': ['평택팀','장당팀','삼거리팀','비전팀','오거리팀','성환팀'],
   '대전그룹': ['시장팀','조치원팀','태평팀','신관팀','대동팀'],
   '전북그룹': ['호성팀','서신팀','제일팀','미룡팀','송천팀'],
-  '충북그룹': ['충의팀','하소팀','내토팀'],
+  '충북그룹': ['충의팀','하소팀','내토팀','오창팀'],
   '제주그룹': ['화인팀','노형팀','이도팀','아라팀','천지팀'],
 };
 const GROUP_NAMES = Object.keys(GROUPS);
@@ -510,7 +495,6 @@ async function init(){
   STATE.calls = await loadCalls();
   STATE.aiSharedKey = await loadSharedSetting('gemini_api_key');
   STATE.missions = await loadMissions();
-  await ensureDefaultMissions();
   STATE.proofs = await loadProofs();
   STATE.rewards = await loadRewards();
   const sess = await loadSession();
@@ -599,6 +583,7 @@ function renderTopbar(u){
 
 function renderSidebar(u){
   const isAdmin = u.role==='admin';
+  const isStore = isStoreAccount(u);
   const callItems = isAdmin
     ? [['admin-overview','전체 현황'],['admin-approve','가입 승인'],['calendar','캘린더'],['ai-settings','AI 연동']]
     : [['trainee','내 대시보드'],['calendar','캘린더']];
@@ -607,6 +592,8 @@ function renderSidebar(u){
     : [['activity-list','미션 목록'],['activity-my','내 인증 기록']];
 
   const item = ([v,l])=> `<button class="side-item ${STATE.view===v?'active':''}" data-nav="${v}">${l}</button>`;
+  const showCall = isAdmin || !isStore;
+  const showActivity = isAdmin || isStore;
 
   return `
   <div class="sidebar-backdrop ${STATE.sidebarOpen?'open':''}" id="sidebarBackdrop"></div>
@@ -616,10 +603,8 @@ function renderSidebar(u){
       <span class="close-x" id="sidebarClose">×</span>
     </div>
     <button class="side-item ${STATE.view==='home'?'active':''}" data-nav="home">🏠 홈</button>
-    <div class="side-group-label">📞 내방유도콜 프로세스</div>
-    ${callItems.map(item).join('')}
-    <div class="side-group-label">🏃 외부활동 프로세스</div>
-    ${activityItems.map(item).join('')}
+    ${showCall ? `<div class="side-group-label">📞 내방유도콜 프로세스</div>${callItems.map(item).join('')}` : ''}
+    ${showActivity ? `<div class="side-group-label">🏃 외부활동 프로세스</div>${activityItems.map(item).join('')}` : ''}
   </div>`;
 }
 
@@ -657,6 +642,9 @@ function renderPending(u){
 
 function renderHomeDashboard(u){
   const isAdmin = u.role==='admin';
+  const isStore = isStoreAccount(u);
+  const showCall = isAdmin || !isStore;
+  const showActivity = isAdmin || isStore;
   const today = todayStr();
   const trainees = STATE.users.filter(x=>x.role!=='admin' && x.status==='approved');
 
@@ -679,28 +667,31 @@ function renderHomeDashboard(u){
       <span class="rank-score">${row.score}${unitLabel}</span>
     </div>`;
 
+  let bannerHtml = '';
+  if(isAdmin && (pendingSignups>0 || pendingProofs>0)){
+    bannerHtml = `<div class="today-banner"><span class="icon">🔔</span><span>가입 승인 대기 <b>${pendingSignups}건</b> · 인증 승인 대기 <b>${pendingProofs}건</b></span></div>`;
+  }else if(!isAdmin && showCall && todaysVisits>0){
+    bannerHtml = `<div class="today-banner"><span class="icon">🔔</span><span>오늘(${today}) 내방 예정 고객이 <b>${todaysVisits}건</b> 있어요!</span></div>`;
+  }
+
   return `
-  ${(isAdmin ? (pendingSignups>0 || pendingProofs>0) : todaysVisits>0) ? `
-  <div class="today-banner">
-    <span class="icon">🔔</span>
-    <span>${isAdmin
-      ? `가입 승인 대기 <b>${pendingSignups}건</b> · 인증 승인 대기 <b>${pendingProofs}건</b>`
-      : `오늘(${today}) 내방 예정 고객이 <b>${todaysVisits}건</b> 있어요!`}</span>
-  </div>` : ''}
+  ${bannerHtml}
   <div class="card">
     <h2>👋 ${u.name}님, 안녕하세요</h2>
-    <div class="sub">이번 달 활동 랭킹이에요. 활동한 만큼 순위가 올라가요!</div>
+    <div class="sub">${showCall && showActivity ? '이번 달 활동 랭킹이에요. 활동한 만큼 순위가 올라가요!' : showActivity ? '이번 달 외부활동 미션 현황이에요.' : '이번 달 내방유도콜 현황이에요.'}</div>
   </div>
+  ${showCall ? `
   <div class="card">
     <h2>📞 내방유도콜 랭킹 <span class="muted" style="font-size:11px;font-weight:400;">(당월 콜 건수)</span></h2>
     ${callRank.length===0 ? `<div class="empty">아직 데이터가 없습니다.</div>` : callRank.map((row,i)=>rankRow(row,i,'건')).join('')}
     <div class="btn-row"><button class="btn teal sm" data-nav="${isAdmin?'admin-overview':'trainee'}">${isAdmin?'전체 현황':'내 대시보드'} 바로가기</button></div>
-  </div>
+  </div>` : ''}
+  ${showActivity ? `
   <div class="card">
     <h2>🏃 외부활동 랭킹 <span class="muted" style="font-size:11px;font-weight:400;">(달성 미션 수)</span></h2>
     ${activityRank.length===0 ? `<div class="empty">아직 데이터가 없습니다.</div>` : activityRank.map((row,i)=>rankRow(row,i,'개')).join('')}
     <div class="btn-row"><button class="btn teal sm" data-nav="${isAdmin?'activity-progress':'activity-list'}">${isAdmin?'진행 현황':'미션 목록'} 바로가기</button></div>
-  </div>`;
+  </div>` : ''}`;
 }
 
 /* ================= ACTIVITY PROCESS (외부활동) ================= */
@@ -1591,7 +1582,17 @@ function bindEvents(){
     e.preventDefault();
     const name = document.getElementById('loginName').value.trim();
     const pw = document.getElementById('loginPw').value;
-    const u = STATE.users.find(x=>x.name===name && x.password===pw);
+    const pwHash = await hashPassword(pw);
+    let u = STATE.users.find(x=>x.name===name && x.password===pwHash);
+    if(!u){
+      // 이전 평문 비밀번호 계정과의 호환 처리: 맞으면 로그인 허용 후 자동으로 해시로 업그레이드
+      const legacy = STATE.users.find(x=>x.name===name && x.password===pw);
+      if(legacy){
+        legacy.password = pwHash;
+        await saveUsers(STATE.users);
+        u = legacy;
+      }
+    }
     if(!u){ STATE.authError='이름 또는 비밀번호가 일치하지 않습니다.'; render(); return; }
     STATE.currentUserId = u.id;
     STATE.authError=''; STATE.authInfo='';
@@ -1609,7 +1610,8 @@ function bindEvents(){
     const pw = document.getElementById('suPw').value;
     if(pw.length<4){ STATE.authError='비밀번호는 4자 이상이어야 합니다.'; render(); return; }
     if(STATE.users.some(u=>u.name===name)){ STATE.authError='이미 존재하는 이름입니다.'; render(); return; }
-    const newUser = { id: uid('u'), name, team, phone, password:pw, role:'trainee', status:'pending', joinedAt: Date.now(), callCount:0 };
+    const pwHash = await hashPassword(pw);
+    const newUser = { id: uid('u'), name, team, phone, password:pwHash, role:'trainee', status:'pending', joinedAt: Date.now(), callCount:0 };
     STATE.users.push(newUser);
     await saveUsers(STATE.users);
     STATE.view='login'; STATE.authError='';
@@ -2045,10 +2047,11 @@ async function savePasswordChange(){
   const cf = document.getElementById('pwConfirm').value;
   const errBox = document.getElementById('pwErrorBox');
   const showErr = (msg)=>{ errBox.innerHTML = `<div class="notice err">${msg}</div>`; };
-  if(cur !== u.password){ showErr('현재 비밀번호가 일치하지 않습니다.'); return; }
+  const curHash = await hashPassword(cur);
+  if(cur !== u.password && curHash !== u.password){ showErr('현재 비밀번호가 일치하지 않습니다.'); return; }
   if(nw.length<4){ showErr('새 비밀번호는 4자 이상이어야 합니다.'); return; }
   if(nw !== cf){ showErr('새 비밀번호가 서로 일치하지 않습니다.'); return; }
-  u.password = nw;
+  u.password = await hashPassword(nw);
   await saveUsers(STATE.users);
   closePasswordModal();
   alert('비밀번호가 변경되었습니다. 다음 로그인부터 새 비밀번호를 사용해주세요.');
