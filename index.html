@@ -677,7 +677,10 @@ function renderHomeDashboard(u){
 
   let bannerHtml = '';
   if(isAdmin && (pendingSignups>0 || pendingProofs>0)){
-    bannerHtml = `<div class="today-banner"><span class="icon">🔔</span><span>가입 승인 대기 <b>${pendingSignups}건</b> · 인증 승인 대기 <b>${pendingProofs}건</b></span></div>`;
+    bannerHtml = `<div class="today-banner"><span class="icon">🔔</span><span>
+      <span data-nav="admin-approve" style="cursor:pointer;text-decoration:underline;">가입 승인 대기 <b>${pendingSignups}건</b></span>
+      · <span data-nav="activity-approve" style="cursor:pointer;text-decoration:underline;">인증 승인 대기 <b>${pendingProofs}건</b></span>
+    </span></div>`;
   }else if(!isAdmin && showCall && todaysVisits>0){
     bannerHtml = `<div class="today-banner"><span class="icon">🔔</span><span>오늘(${today}) 내방 예정 고객이 <b>${todaysVisits}건</b> 있어요!</span></div>`;
   }
