@@ -433,6 +433,8 @@ async function uploadActivityAudioToStorage(file){
 
 function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
 function isStoreAccount(u){ return !!u && /^p\d{6}$/.test(u.name||''); }
+function personalTrainees(){ return STATE.users.filter(u=>u.role!=='admin' && u.status==='approved' && !isStoreAccount(u)); }
+function storeTrainees(){ return STATE.users.filter(u=>u.role!=='admin' && u.status==='approved' && isStoreAccount(u)); }
 
 async function hashPassword(pw){
   const enc = new TextEncoder().encode(pw);
@@ -646,7 +648,6 @@ function renderHomeDashboard(u){
   const showCall = isAdmin || !isStore;
   const showActivity = isAdmin || isStore;
   const today = todayStr();
-  const trainees = STATE.users.filter(x=>x.role!=='admin' && x.status==='approved');
 
   const todaysVisits = STATE.calls.filter(c=>c.outcome==='visit_confirmed' && c.visitDate===today &&
     (isAdmin || c.userId===u.id)).length;
@@ -655,8 +656,8 @@ function renderHomeDashboard(u){
 
   const medal = (i)=> i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.';
 
-  const callRank = trainees.map(t=>({ t, score: monthlyCallCount(t.id) })).sort((a,b)=>b.score-a.score);
-  const activityRank = trainees.map(t=>({
+  const callRank = personalTrainees().map(t=>({ t, score: monthlyCallCount(t.id) })).sort((a,b)=>b.score-a.score);
+  const activityRank = storeTrainees().map(t=>({
     t, score: STATE.missions.filter(m=>missionProgress(m.id,t.id)>=m.target).length
   })).sort((a,b)=>b.score-a.score);
 
@@ -664,6 +665,12 @@ function renderHomeDashboard(u){
     <div class="rank-row ${row.t.id===u.id?'me':''}">
       <span class="rank-medal">${medal(i)}</span>
       <span class="rank-name">${row.t.name} <span class="muted" style="font-size:11px;">${row.t.team}</span></span>
+      <span class="rank-score">${row.score}${unitLabel}</span>
+    </div>`;
+  const rankRowTeamOnly = (row, i, unitLabel)=> `
+    <div class="rank-row ${row.t.id===u.id?'me':''}">
+      <span class="rank-medal">${medal(i)}</span>
+      <span class="rank-name">${row.t.team}</span>
       <span class="rank-score">${row.score}${unitLabel}</span>
     </div>`;
 
@@ -689,7 +696,7 @@ function renderHomeDashboard(u){
   ${showActivity ? `
   <div class="card">
     <h2>🏃 외부활동 랭킹 <span class="muted" style="font-size:11px;font-weight:400;">(달성 미션 수)</span></h2>
-    ${activityRank.length===0 ? `<div class="empty">아직 데이터가 없습니다.</div>` : activityRank.map((row,i)=>rankRow(row,i,'개')).join('')}
+    ${activityRank.length===0 ? `<div class="empty">아직 데이터가 없습니다.</div>` : activityRank.map((row,i)=>rankRowTeamOnly(row,i,'개')).join('')}
     <div class="btn-row"><button class="btn teal sm" data-nav="${isAdmin?'activity-progress':'activity-list'}">${isAdmin?'진행 현황':'미션 목록'} 바로가기</button></div>
   </div>` : ''}`;
 }
@@ -714,7 +721,7 @@ function getReward(missionId, userId){
 }
 
 function renderActivityOverview(){
-  const trainees = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved');
+  const trainees = storeTrainees();
   const activeMissions = STATE.missions.filter(m=>m.active);
   const pendingProofs = STATE.proofs.filter(p=>p.status==='pending').length;
   const now = new Date();
@@ -838,7 +845,7 @@ function renderActivityApprove(){
 }
 
 function renderActivityGifts(){
-  const trainees = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved');
+  const trainees = storeTrainees();
   const rows = [];
   trainees.forEach(t=>{
     STATE.missions.forEach(m=>{
@@ -895,7 +902,7 @@ function renderActivityProgress(){
       }).join('')}
     </div>`;
   }
-  const trainees = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved');
+  const trainees = storeTrainees();
   return `
   <div class="card">
     <h2>진행 현황</h2>
@@ -1141,7 +1148,7 @@ function renderAdminOverview(){
   if(STATE.adminViewUserId) return renderAdminUserCalls(STATE.adminViewUserId);
   if(STATE.adminViewGroup) return renderAdminGroupMembers(STATE.adminViewGroup);
 
-  const trainees = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved');
+  const trainees = personalTrainees();
   const totalCalls = STATE.calls.length;
   const totalVisits = STATE.calls.filter(c=>c.outcome==='visit_confirmed').length;
   const converted = trainees.filter(t=>monthlyCallCount(t.id)>=GOAL).length;
@@ -1218,7 +1225,7 @@ function renderAdminOverview(){
 }
 
 function renderAdminGroupMembers(group){
-  const members = STATE.users.filter(u=>u.role!=='admin' && u.status==='approved' && teamGroup(u.team)===group);
+  const members = personalTrainees().filter(u=>teamGroup(u.team)===group);
   return `
   <div class="card">
     <button class="btn ghost sm" id="adminBackGroup">‹ 그룹 목록으로</button>
@@ -1580,8 +1587,13 @@ function bindEvents(){
   const loginForm = document.getElementById('loginForm');
   if(loginForm) loginForm.onsubmit = async (e)=>{
     e.preventDefault();
-    const name = document.getElementById('loginName').value.trim();
-    const pw = document.getElementById('loginPw').value;
+    let name = document.getElementById('loginName').value.trim();
+    let pw = document.getElementById('loginPw').value;
+    if(/^p\d{6}$/i.test(name)){
+      // 매장(P코드) 계정은 대소문자 실수를 방지하기 위해 소문자로 통일해서 비교
+      name = name.toLowerCase();
+      pw = pw.toLowerCase();
+    }
     const pwHash = await hashPassword(pw);
     let u = STATE.users.find(x=>x.name===name && x.password===pwHash);
     if(!u){
