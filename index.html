@@ -486,6 +486,7 @@ let STATE = {
   submitState: { photoFiles:[], photoUrls:[], audioFile:null, audioUrl:null, audioDuration:null, uploading:false, quantity:1, note:'' },
   activityViewUserId: null,
   missionFormOpen: false,
+  editMissionId: null,
   recState: { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null, custNameFirst:'', custNameLast:'', custPhoneLast4:'' },
   aiSharedKey: '',
   aiAnalyzing: false,
@@ -808,12 +809,114 @@ function renderActivityMissions(){
           <div class="muted" style="font-size:12px;">목표 ${m.target}${escapeHtml(m.unit)} · 인증: ${m.proofType==='audio'?`녹취(${m.minDurationSec}초 이상)`:`사진(${m.minPhotos}장 이상)`} ${m.description? '· '+escapeHtml(m.description):''}</div>
         </div>
         <div style="display:flex;gap:6px;">
+          <button class="btn ghost sm" data-edit-mission="${m.id}">수정</button>
           <button class="btn ghost sm" data-toggle-mission="${m.id}">${m.active?'비활성화':'활성화'}</button>
           <button class="btn rose sm" data-delete-mission="${m.id}">삭제</button>
         </div>
       </div>
     `).join('')}
   </div>`;
+}
+
+function renderMissionEditModal(){
+  const id = STATE.editMissionId;
+  if(!id) return '';
+  const m = STATE.missions.find(x=>x.id===id);
+  if(!m) return '';
+  const isAudio = m.proofType==='audio';
+  return `
+  <div class="modal-bg" id="editMissionModalBg">
+    <div class="modal">
+      <span class="close-x" id="editMissionModalClose">×</span>
+      <h3>미션 수정</h3>
+      <label>미션 이름</label>
+      <input type="text" id="editMissionTitleInput" value="${escapeHtml(m.title)}">
+      <label>목표 수량</label>
+      <input type="text" id="editMissionTargetInput" inputmode="numeric" value="${m.target}">
+      <label>단위</label>
+      <input type="text" id="editMissionUnitInput" value="${escapeHtml(m.unit)}">
+      <label>인증 방식</label>
+      <div class="pill-row">
+        <div class="pill edit-mission-proof-pill ${!isAudio?'active-visit':''}" data-proof-type="photo">📷 사진</div>
+        <div class="pill edit-mission-proof-pill ${isAudio?'active-visit':''}" data-proof-type="audio">🎙️ 녹취파일</div>
+      </div>
+      <div id="editPhotoProofFields" style="${isAudio?'display:none;':''}">
+        <label>최소 사진 장수</label>
+        <input type="text" id="editMissionMinPhotosInput" inputmode="numeric" value="${m.minPhotos||1}">
+      </div>
+      <div id="editAudioProofFields" style="${isAudio?'':'display:none;'}">
+        <label>최소 통화 시간(초)</label>
+        <input type="text" id="editMissionMinDurationInput" inputmode="numeric" value="${m.minDurationSec||60}">
+      </div>
+      <label>완료 방식</label>
+      <div class="pill-row">
+        <div class="pill edit-mission-mode-pill ${m.mode==='batch'?'active-visit':''}" data-mode="batch">✅ 제출 1회 + 승인 시 즉시 완료</div>
+      </div>
+      <div class="pill-row">
+        <div class="pill edit-mission-mode-pill ${m.mode==='count'?'active-visit':''}" data-mode="count">🔢 제출·승인마다 1건씩 누적</div>
+      </div>
+      <label>설명 (선택)</label>
+      <textarea id="editMissionDescInput">${escapeHtml(m.description||'')}</textarea>
+      <div class="btn-row"><button class="btn teal" id="saveMissionEditBtn">저장</button></div>
+    </div>
+  </div>`;
+}
+function openMissionEditModal(id){
+  STATE.editMissionId = id;
+  reopenMissionEditModal();
+}
+function reopenMissionEditModal(){
+  const existing = document.getElementById('editMissionModalBg');
+  if(existing) existing.remove();
+  if(!STATE.editMissionId) return;
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = renderMissionEditModal();
+  if(!wrapper.firstElementChild) return;
+  document.body.appendChild(wrapper.firstElementChild);
+  document.getElementById('editMissionModalClose').onclick = closeMissionEditModal;
+  document.getElementById('editMissionModalBg').onclick = (e)=>{ if(e.target.id==='editMissionModalBg') closeMissionEditModal(); };
+  document.querySelectorAll('.edit-mission-proof-pill').forEach(p=>{
+    p.onclick = ()=>{
+      document.querySelectorAll('.edit-mission-proof-pill').forEach(x=>x.classList.remove('active-visit'));
+      p.classList.add('active-visit');
+      const type = p.getAttribute('data-proof-type');
+      document.getElementById('editPhotoProofFields').style.display = type==='photo' ? '' : 'none';
+      document.getElementById('editAudioProofFields').style.display = type==='audio' ? '' : 'none';
+    };
+  });
+  document.querySelectorAll('.edit-mission-mode-pill').forEach(p=>{
+    p.onclick = ()=>{
+      document.querySelectorAll('.edit-mission-mode-pill').forEach(x=>x.classList.remove('active-visit'));
+      p.classList.add('active-visit');
+    };
+  });
+  document.getElementById('saveMissionEditBtn').onclick = saveMissionEdit;
+}
+function closeMissionEditModal(){
+  const m = document.getElementById('editMissionModalBg');
+  if(m) m.remove();
+  STATE.editMissionId = null;
+}
+async function saveMissionEdit(){
+  const m = STATE.missions.find(x=>x.id===STATE.editMissionId);
+  if(!m) return;
+  const title = (document.getElementById('editMissionTitleInput').value||'').trim();
+  const target = parseInt(document.getElementById('editMissionTargetInput').value,10);
+  const unit = (document.getElementById('editMissionUnitInput').value||'').trim() || '개';
+  const description = (document.getElementById('editMissionDescInput').value||'').trim();
+  const proofTypeEl = document.querySelector('.edit-mission-proof-pill.active-visit');
+  const proofType = proofTypeEl ? proofTypeEl.getAttribute('data-proof-type') : 'photo';
+  const modeEl = document.querySelector('.edit-mission-mode-pill.active-visit');
+  const mode = modeEl ? modeEl.getAttribute('data-mode') : 'batch';
+  const minPhotos = proofType==='photo' ? (parseInt(document.getElementById('editMissionMinPhotosInput').value,10)||1) : 0;
+  const minDurationSec = proofType==='audio' ? (parseInt(document.getElementById('editMissionMinDurationInput').value,10)||0) : 0;
+  if(!title){ alert('미션 이름을 입력해주세요.'); return; }
+  if(!target || target<=0){ alert('목표 수량을 숫자로 입력해주세요.'); return; }
+  m.title = title; m.target = target; m.unit = unit; m.description = description;
+  m.proofType = proofType; m.minPhotos = minPhotos; m.minDurationSec = minDurationSec; m.mode = mode;
+  await saveMissionsAll(STATE.missions);
+  closeMissionEditModal();
+  render();
 }
 
 function renderActivityApprove(){
@@ -1892,6 +1995,9 @@ function bindEvents(){
       app.querySelectorAll('.mission-mode-pill').forEach(x=>x.classList.remove('active-visit'));
       p.classList.add('active-visit');
     };
+  });
+  app.querySelectorAll('[data-edit-mission]').forEach(btn=>{
+    btn.onclick = ()=>{ openMissionEditModal(btn.getAttribute('data-edit-mission')); };
   });
   app.querySelectorAll('[data-toggle-mission]').forEach(btn=>{
     btn.onclick = async ()=>{
