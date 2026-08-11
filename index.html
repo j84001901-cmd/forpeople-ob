@@ -390,6 +390,13 @@ async function updateProofStatus(id, status){
     return true;
   }catch(e){ console.error('updateProofStatus error', e); alert('처리 실패: '+e.message); return false; }
 }
+async function deleteProofFromDb(id){
+  try{
+    const { error } = await supabaseClient.from('pp_activity_proofs').delete().eq('id', id);
+    if(error) throw error;
+    return true;
+  }catch(e){ console.error('deleteProofFromDb error', e); alert('삭제 실패: '+e.message); return false; }
+}
 async function loadRewards(){
   try{
     const { data, error } = await supabaseClient.from('pp_mission_rewards').select('*');
@@ -487,6 +494,7 @@ let STATE = {
   activityViewUserId: null,
   missionFormOpen: false,
   editMissionId: null,
+  historyFilter: 'all',
   recState: { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null, custNameFirst:'', custNameLast:'', custPhoneLast4:'' },
   aiSharedKey: '',
   aiAnalyzing: false,
@@ -591,7 +599,7 @@ function renderSidebar(u){
     ? [['admin-overview','전체 현황'],['admin-approve','가입 승인'],['calendar','캘린더'],['ai-settings','AI 연동']]
     : [['trainee','내 대시보드'],['calendar','캘린더']];
   const activityItems = isAdmin
-    ? [['activity-overview','전체 현황'],['activity-missions','미션 관리'],['activity-approve','인증 승인'],['activity-progress','진행 현황'],['activity-gifts','🎁 기프티콘 발송']]
+    ? [['activity-overview','전체 현황'],['activity-missions','미션 관리'],['activity-approve','인증 승인'],['activity-history','인증 이력'],['activity-progress','진행 현황'],['activity-gifts','🎁 기프티콘 발송']]
     : [['activity-list','미션 목록'],['activity-my','내 인증 기록']];
 
   const item = ([v,l])=> `<button class="side-item ${STATE.view===v?'active':''}" data-nav="${v}">${l}</button>`;
@@ -626,6 +634,7 @@ function renderMain(u){
     case 'activity-overview': return renderActivityOverview();
     case 'activity-missions': return renderActivityMissions();
     case 'activity-approve': return renderActivityApprove();
+    case 'activity-history': return renderActivityHistory();
     case 'activity-progress': return renderActivityProgress();
     case 'activity-gifts': return renderActivityGifts();
     case 'activity-list': return renderActivityList(u);
@@ -944,6 +953,45 @@ function renderActivityApprove(){
         <div class="btn-row" style="margin-top:0;">
           <button class="btn teal sm" data-approve-proof="${p.id}">승인</button>
           <button class="btn rose sm" data-reject-proof="${p.id}">거절</button>
+        </div>
+      </div>
+    `).join('')}
+  </div>`;
+}
+
+function renderActivityHistory(){
+  const missionTitle = (id)=> (STATE.missions.find(m=>m.id===id)||{}).title || '(삭제된 미션)';
+  const filter = STATE.historyFilter || 'all';
+  const done = STATE.proofs.filter(p=>p.status!=='pending');
+  const approvedCnt = STATE.proofs.filter(p=>p.status==='approved').length;
+  const rejectedCnt = STATE.proofs.filter(p=>p.status==='rejected').length;
+  let list = done;
+  if(filter==='approved') list = done.filter(p=>p.status==='approved');
+  if(filter==='rejected') list = done.filter(p=>p.status==='rejected');
+  list = [...list].sort((a,b)=>b.createdAt-a.createdAt);
+
+  return `
+  <div class="card">
+    <h2>인증 이력</h2>
+    <div class="sub">승인·거절 처리된 인증 내역이 누적으로 쌓여요.</div>
+    <div class="pill-row">
+      <div class="pill ${filter==='all'?'active-visit':''}" data-history-filter="all">전체 (${done.length})</div>
+      <div class="pill ${filter==='approved'?'active-visit':''}" data-history-filter="approved">승인됨 (${approvedCnt})</div>
+      <div class="pill ${filter==='rejected'?'active-visit':''}" data-history-filter="rejected">거절됨 (${rejectedCnt})</div>
+    </div>
+    ${list.length===0 ? `<div class="empty">내역이 없습니다.</div>` : list.map(p=>`
+      <div class="feedback-item">
+        <div class="meta" style="font-weight:700;color:var(--ink);">${escapeHtml(p.userName)} · ${escapeHtml(p.team)} · ${escapeHtml(missionTitle(p.missionId))} ${p.status==='approved'?'<span class="badge approved">승인</span>':'<span class="badge rejected">거절</span>'}</div>
+        <div class="muted" style="font-size:12px;margin-bottom:6px;">${new Date(p.createdAt).toLocaleString('ko-KR')} · 수량 ${p.quantity}${p.note? ' · '+escapeHtml(p.note):''}</div>
+        ${p.audioUrl ? `
+          <audio controls style="width:100%;margin-bottom:8px;" src="${p.audioUrl}"></audio>
+        ` : (p.photoUrls||[]).length>0 ? `
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+            ${p.photoUrls.map(url=>`<a href="${url}" target="_blank"><img src="${url}" style="width:60px;height:60px;object-fit:cover;border-radius:8px;" /></a>`).join('')}
+          </div>
+        ` : ''}
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn rose sm" data-delete-proof="${p.id}">삭제</button>
         </div>
       </div>
     `).join('')}
@@ -2030,6 +2078,18 @@ function bindEvents(){
       const id = btn.getAttribute('data-reject-proof');
       const ok = await updateProofStatus(id, 'rejected');
       if(ok){ const p = STATE.proofs.find(x=>x.id===id); if(p) p.status='rejected'; render(); }
+    };
+  });
+
+  app.querySelectorAll('[data-history-filter]').forEach(btn=>{
+    btn.onclick = ()=>{ STATE.historyFilter = btn.getAttribute('data-history-filter'); render(); };
+  });
+  app.querySelectorAll('[data-delete-proof]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      if(!confirm('이 인증 기록을 삭제하시겠습니까? 되돌릴 수 없습니다.')) return;
+      const id = btn.getAttribute('data-delete-proof');
+      const ok = await deleteProofFromDb(id);
+      if(ok){ STATE.proofs = STATE.proofs.filter(p=>p.id!==id); render(); }
     };
   });
 
