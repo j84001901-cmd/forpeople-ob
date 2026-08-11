@@ -237,6 +237,12 @@
   .rank-name{flex:1;font-weight:600;}
   .rank-score{font-family:var(--mono);font-weight:700;color:var(--navy);flex-shrink:0;}
 
+  .mteam-row{padding:9px 4px;border-bottom:1px solid var(--line);}
+  .mteam-row:last-child{border-bottom:none;}
+  .mteam-top{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:6px;}
+  .mteam-bar{background:#EEF1F5;border-radius:20px;height:8px;overflow:hidden;}
+  .mteam-bar-fill{height:100%;transition:width .2s;}
+
   .key-note{font-size:12px;color:var(--ink-muted);background:#FAFBFC;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:14px;line-height:1.6;}
   .footnote{font-size:11.5px;color:var(--ink-muted);margin-top:6px;}
   .today-banner{
@@ -495,6 +501,7 @@ let STATE = {
   missionFormOpen: false,
   editMissionId: null,
   historyFilter: 'all',
+  activityViewMissionId: null,
   recState: { transcript:'', outcome:'visit_confirmed', visitDate:'', audioBase64:null, audioMime:null, audioFileName:'', audioUrl:null, audioUploading:false, audioDuration:null, custNameFirst:'', custNameLast:'', custPhoneLast4:'' },
   aiSharedKey: '',
   aiAnalyzing: false,
@@ -734,11 +741,11 @@ function getReward(missionId, userId){
 }
 
 function renderActivityOverview(){
+  if(STATE.activityViewMissionId) return renderActivityMissionDetail(STATE.activityViewMissionId);
+
   const trainees = storeTrainees();
   const activeMissions = STATE.missions.filter(m=>m.active);
   const pendingProofs = STATE.proofs.filter(p=>p.status==='pending').length;
-  const now = new Date();
-  const monthlyCompleted = STATE.missions.reduce((sum,m)=> sum + trainees.filter(t=>missionProgress(m.id,t.id)>=m.target).length, 0);
   const fullyDoneTrainees = trainees.filter(t=> activeMissions.length>0 && activeMissions.every(m=>missionProgress(m.id,t.id)>=m.target)).length;
 
   return `
@@ -759,20 +766,62 @@ function renderActivityOverview(){
   </div>
   <div class="card">
     <h2>미션별 현황 <span class="muted" style="font-size:11.5px;font-weight:400;">(당월)</span></h2>
+    <div class="sub">미션을 누르면 팀별 진척률을 확인할 수 있어요.</div>
     ${activeMissions.length===0 ? `<div class="empty">등록된 미션이 없습니다.</div>` : `
-    <div class="table-scroll"><table><thead><tr><th>미션</th><th>목표</th><th>달성 인원</th><th>승인 대기</th></tr></thead>
+    <div class="table-scroll"><table><thead><tr><th>미션</th><th>목표</th><th>완료</th><th>진행중</th><th>승인 대기</th></tr></thead>
     <tbody>
       ${activeMissions.map(m=>{
-        const doneCnt = trainees.filter(t=>missionProgress(m.id,t.id)>=m.target).length;
+        const progs = trainees.map(t=>Math.min(missionProgress(m.id,t.id), m.target));
+        const doneCnt = progs.filter(p=>p>=m.target).length;
+        const inProgressCnt = progs.filter(p=>p>0 && p<m.target).length;
         const pendCnt = STATE.proofs.filter(p=>p.missionId===m.id && p.status==='pending').length;
-        return `<tr>
+        return `<tr data-open-mission="${m.id}" style="cursor:pointer;">
           <td>${escapeHtml(m.title)}</td>
           <td class="muted" style="font-family:var(--mono);">${m.target}${escapeHtml(m.unit)}</td>
           <td class="muted" style="font-family:var(--mono);">${doneCnt} / ${trainees.length}</td>
+          <td class="muted" style="font-family:var(--mono);">${inProgressCnt}</td>
           <td class="muted" style="font-family:var(--mono);">${pendCnt}</td>
         </tr>`;
       }).join('')}
     </tbody></table></div>`}
+  </div>`;
+}
+
+function renderActivityMissionDetail(missionId){
+  const m = STATE.missions.find(x=>x.id===missionId);
+  if(!m) return `<div class="card"><button class="btn ghost sm" id="activityBackMission">‹ 전체 현황으로</button><div class="empty" style="margin-top:14px;">미션을 찾을 수 없습니다.</div></div>`;
+  const trainees = storeTrainees();
+  const rows = trainees.map(t=>{
+    const prog = Math.min(missionProgress(m.id, t.id), m.target);
+    const pct = m.target>0 ? Math.round(prog/m.target*100) : 0;
+    return { t, prog, pct };
+  }).sort((a,b)=> b.pct-a.pct || b.prog-a.prog);
+  const doneCnt = rows.filter(r=>r.prog>=m.target).length;
+  const inProgressCnt = rows.filter(r=>r.prog>0 && r.prog<m.target).length;
+  const notStartedCnt = rows.filter(r=>r.prog===0).length;
+
+  return `
+  <div class="card">
+    <button class="btn ghost sm" id="activityBackMission">‹ 전체 현황으로</button>
+    <h2 style="margin-top:14px;">${escapeHtml(m.title)}</h2>
+    <div class="sub">목표 ${m.target}${escapeHtml(m.unit)} · ${escapeHtml(m.description||'')}</div>
+    <div class="stat-row">
+      <div class="stat-box"><div class="num">🏆 ${doneCnt}</div><div class="lbl">완료팀</div></div>
+      <div class="stat-box"><div class="num">${inProgressCnt}</div><div class="lbl">진행중</div></div>
+      <div class="stat-box"><div class="num">${notStartedCnt}</div><div class="lbl">미시작</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>팀별 진척률</h2>
+    ${rows.length===0 ? `<div class="empty">참여 가능한 팀이 없습니다.</div>` : rows.map((r,i)=>`
+      <div class="mteam-row">
+        <div class="mteam-top">
+          <span><b>${r.prog>=m.target?'🏆':(i+1)+'.'}</b> ${escapeHtml(r.t.team)}</span>
+          <span class="muted" style="font-family:var(--mono);">${r.prog} / ${m.target}${escapeHtml(m.unit)} · ${r.pct}%</span>
+        </div>
+        <div class="mteam-bar"><div class="mteam-bar-fill" style="width:${r.pct}%;background:${r.prog>=m.target?'var(--teal)':'var(--navy)'};"></div></div>
+      </div>
+    `).join('')}
   </div>`;
 }
 
@@ -1809,6 +1858,7 @@ function bindEvents(){
       STATE.adminViewGroup = null;
       STATE.adminViewUserId = null;
       STATE.activityViewUserId = null;
+      STATE.activityViewMissionId = null;
       STATE.sidebarOpen = false;
       render();
     };
@@ -2098,6 +2148,12 @@ function bindEvents(){
   });
   const activityBackUser = document.getElementById('activityBackUser');
   if(activityBackUser) activityBackUser.onclick = ()=>{ STATE.activityViewUserId = null; render(); };
+
+  app.querySelectorAll('[data-open-mission]').forEach(el=>{
+    el.onclick = ()=>{ STATE.activityViewMissionId = el.getAttribute('data-open-mission'); render(); };
+  });
+  const activityBackMission = document.getElementById('activityBackMission');
+  if(activityBackMission) activityBackMission.onclick = ()=>{ STATE.activityViewMissionId = null; render(); };
 
   app.querySelectorAll('[data-give-reward]').forEach(btn=>{
     btn.onclick = async ()=>{
