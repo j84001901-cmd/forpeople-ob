@@ -342,7 +342,8 @@ async function loadMissions(){
       id:r.id, title:r.title, target:r.target, unit:r.unit, description:r.description,
       active: r.active!==false, createdAt:Number(r.created_at),
       proofType: r.proof_type || 'photo', minPhotos: r.min_photos||1, minDurationSec: r.min_duration_sec||0,
-      mode: r.completion_mode || (r.proof_type==='audio' ? 'count' : 'batch')
+      mode: r.completion_mode || (r.proof_type==='audio' ? 'count' : 'batch'),
+      period: r.period || 'monthly'
     }));
   }catch(e){ console.error('loadMissions error', e); return []; }
 }
@@ -352,7 +353,8 @@ async function saveMissionsAll(list){
       id:m.id, title:m.title, target:m.target, unit:m.unit, description:m.description,
       active:m.active, created_at:m.createdAt,
       proof_type:m.proofType||'photo', min_photos:m.minPhotos||0, min_duration_sec:m.minDurationSec||0,
-      completion_mode: m.mode || (m.proofType==='audio' ? 'count' : 'batch')
+      completion_mode: m.mode || (m.proofType==='audio' ? 'count' : 'batch'),
+      period: m.period || 'monthly'
     }));
     const { error } = await supabaseClient.from('pp_missions').upsert(rows, { onConflict:'id' });
     if(error) throw error;
@@ -724,11 +726,22 @@ function renderHomeDashboard(u){
 /* ================= ACTIVITY PROCESS (외부활동) ================= */
 function missionProgress(missionId, userId){
   const now = new Date();
-  return STATE.proofs.filter(p=>{
+  const approved = STATE.proofs.filter(p=>{
     if(p.missionId!==missionId || p.userId!==userId || p.status!=='approved') return false;
     const d = new Date(p.createdAt);
     return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth();
-  }).reduce((sum,p)=>sum+(p.quantity||1),0);
+  });
+  const mission = STATE.missions.find(m=>m.id===missionId);
+  const period = mission ? (mission.period||'monthly') : 'monthly';
+  if(period==='daily'){
+    const days = new Set(approved.map(p=> new Date(p.createdAt).getDate()));
+    return days.size;
+  }
+  if(period==='weekly'){
+    const weeks = new Set(approved.map(p=> Math.ceil(new Date(p.createdAt).getDate()/7)));
+    return weeks.size;
+  }
+  return approved.reduce((sum,p)=>sum+(p.quantity||1),0);
 }
 function getReward(missionId, userId){
   const now = new Date();
@@ -832,10 +845,21 @@ function renderActivityMissions(){
     <div class="sub">외부활동 미션의 이름과 목표 수량, 인증 방식을 설정하세요.</div>
     <label>미션 이름</label>
     <input type="text" id="missionTitleInput" placeholder="예: 임대 상가 명함 꽂기">
-    <label>목표 수량</label>
+    <label>반복 주기</label>
+    <div class="pill-row">
+      <div class="pill mission-period-pill active-visit" data-period="monthly">📅 매월 (수량 누적)</div>
+    </div>
+    <div class="pill-row">
+      <div class="pill mission-period-pill" data-period="daily">☀️ 매일 (일별 달성)</div>
+      <div class="pill mission-period-pill" data-period="weekly">🗓️ 매주 (주별 달성)</div>
+    </div>
+    <div class="footnote" id="periodHint">매월: 이번 달 동안 목표 수량을 채우면 완료돼요.</div>
+    <label id="missionTargetLabel">목표 수량</label>
     <input type="text" id="missionTargetInput" inputmode="numeric" placeholder="예: 10">
-    <label>단위</label>
-    <input type="text" id="missionUnitInput" placeholder="예: 개 / 장 / 콜">
+    <div id="missionUnitField">
+      <label>단위</label>
+      <input type="text" id="missionUnitInput" placeholder="예: 개 / 장 / 콜">
+    </div>
     <label>인증 방식</label>
     <div class="pill-row">
       <div class="pill mission-proof-pill active-visit" data-proof-type="photo">📷 사진</div>
@@ -849,12 +873,14 @@ function renderActivityMissions(){
       <label>최소 통화 시간(초)</label>
       <input type="text" id="missionMinDurationInput" inputmode="numeric" placeholder="예: 60 (1분)">
     </div>
-    <label>완료 방식</label>
-    <div class="pill-row">
-      <div class="pill mission-mode-pill active-visit" data-mode="batch">✅ 제출 1회 + 관리자 승인 시 즉시 완료</div>
-    </div>
-    <div class="pill-row">
-      <div class="pill mission-mode-pill" data-mode="count">🔢 제출·승인마다 1건씩 누적</div>
+    <div id="missionModeField">
+      <label>완료 방식</label>
+      <div class="pill-row">
+        <div class="pill mission-mode-pill active-visit" data-mode="batch">✅ 제출 1회 + 관리자 승인 시 즉시 완료</div>
+      </div>
+      <div class="pill-row">
+        <div class="pill mission-mode-pill" data-mode="count">🔢 제출·승인마다 1건씩 누적</div>
+      </div>
     </div>
     <label>설명 (선택)</label>
     <textarea id="missionDescInput" placeholder="미션 설명 및 완료 기준을 입력하세요"></textarea>
@@ -866,7 +892,7 @@ function renderActivityMissions(){
     ${STATE.missions.length===0 ? `<div class="empty">등록된 미션이 없습니다.</div>` : STATE.missions.map(m=>`
       <div class="feedback-item" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
         <div>
-          <div style="font-weight:700;">${escapeHtml(m.title)} ${m.active?'':'<span class="badge pending">비활성</span>'}</div>
+          <div style="font-weight:700;">${escapeHtml(m.title)} ${m.active?'':'<span class="badge pending">비활성</span>'} <span class="badge approved" style="background:var(--amber-light);color:#8a6417;">${m.period==='daily'?'매일':m.period==='weekly'?'매주':'매월'}</span></div>
           <div class="muted" style="font-size:12px;">목표 ${m.target}${escapeHtml(m.unit)} · 인증: ${m.proofType==='audio'?`녹취(${m.minDurationSec}초 이상)`:`사진(${m.minPhotos}장 이상)`} ${m.description? '· '+escapeHtml(m.description):''}</div>
         </div>
         <div style="display:flex;gap:6px;">
@@ -885,6 +911,7 @@ function renderMissionEditModal(){
   const m = STATE.missions.find(x=>x.id===id);
   if(!m) return '';
   const isAudio = m.proofType==='audio';
+  const period = m.period || 'monthly';
   return `
   <div class="modal-bg" id="editMissionModalBg">
     <div class="modal">
@@ -892,10 +919,18 @@ function renderMissionEditModal(){
       <h3>미션 수정</h3>
       <label>미션 이름</label>
       <input type="text" id="editMissionTitleInput" value="${escapeHtml(m.title)}">
-      <label>목표 수량</label>
+      <label>반복 주기</label>
+      <div class="pill-row">
+        <div class="pill edit-mission-period-pill ${period==='monthly'?'active-visit':''}" data-period="monthly">📅 매월</div>
+        <div class="pill edit-mission-period-pill ${period==='daily'?'active-visit':''}" data-period="daily">☀️ 매일</div>
+        <div class="pill edit-mission-period-pill ${period==='weekly'?'active-visit':''}" data-period="weekly">🗓️ 매주</div>
+      </div>
+      <label id="editMissionTargetLabel">${period==='daily'?'목표 일수 (이번 달)':period==='weekly'?'목표 주수 (이번 달)':'목표 수량'}</label>
       <input type="text" id="editMissionTargetInput" inputmode="numeric" value="${m.target}">
-      <label>단위</label>
-      <input type="text" id="editMissionUnitInput" value="${escapeHtml(m.unit)}">
+      <div id="editMissionUnitField" style="${period!=='monthly'?'display:none;':''}">
+        <label>단위</label>
+        <input type="text" id="editMissionUnitInput" value="${escapeHtml(m.unit)}">
+      </div>
       <label>인증 방식</label>
       <div class="pill-row">
         <div class="pill edit-mission-proof-pill ${!isAudio?'active-visit':''}" data-proof-type="photo">📷 사진</div>
@@ -909,12 +944,14 @@ function renderMissionEditModal(){
         <label>최소 통화 시간(초)</label>
         <input type="text" id="editMissionMinDurationInput" inputmode="numeric" value="${m.minDurationSec||60}">
       </div>
-      <label>완료 방식</label>
-      <div class="pill-row">
-        <div class="pill edit-mission-mode-pill ${m.mode==='batch'?'active-visit':''}" data-mode="batch">✅ 제출 1회 + 승인 시 즉시 완료</div>
-      </div>
-      <div class="pill-row">
-        <div class="pill edit-mission-mode-pill ${m.mode==='count'?'active-visit':''}" data-mode="count">🔢 제출·승인마다 1건씩 누적</div>
+      <div id="editMissionModeField" style="${period!=='monthly'?'display:none;':''}">
+        <label>완료 방식</label>
+        <div class="pill-row">
+          <div class="pill edit-mission-mode-pill ${m.mode==='batch'?'active-visit':''}" data-mode="batch">✅ 제출 1회 + 승인 시 즉시 완료</div>
+        </div>
+        <div class="pill-row">
+          <div class="pill edit-mission-mode-pill ${m.mode==='count'?'active-visit':''}" data-mode="count">🔢 제출·승인마다 1건씩 누적</div>
+        </div>
       </div>
       <label>설명 (선택)</label>
       <textarea id="editMissionDescInput">${escapeHtml(m.description||'')}</textarea>
@@ -936,6 +973,25 @@ function reopenMissionEditModal(){
   document.body.appendChild(wrapper.firstElementChild);
   document.getElementById('editMissionModalClose').onclick = closeMissionEditModal;
   document.getElementById('editMissionModalBg').onclick = (e)=>{ if(e.target.id==='editMissionModalBg') closeMissionEditModal(); };
+  document.querySelectorAll('.edit-mission-period-pill').forEach(p=>{
+    p.onclick = ()=>{
+      document.querySelectorAll('.edit-mission-period-pill').forEach(x=>x.classList.remove('active-visit'));
+      p.classList.add('active-visit');
+      const period = p.getAttribute('data-period');
+      const targetLabel = document.getElementById('editMissionTargetLabel');
+      const unitField = document.getElementById('editMissionUnitField');
+      const modeField = document.getElementById('editMissionModeField');
+      if(period==='daily'){
+        if(targetLabel) targetLabel.textContent = '목표 일수 (이번 달)';
+      }else if(period==='weekly'){
+        if(targetLabel) targetLabel.textContent = '목표 주수 (이번 달)';
+      }else{
+        if(targetLabel) targetLabel.textContent = '목표 수량';
+      }
+      if(unitField) unitField.style.display = period==='monthly' ? '' : 'none';
+      if(modeField) modeField.style.display = period==='monthly' ? '' : 'none';
+    };
+  });
   document.querySelectorAll('.edit-mission-proof-pill').forEach(p=>{
     p.onclick = ()=>{
       document.querySelectorAll('.edit-mission-proof-pill').forEach(x=>x.classList.remove('active-visit'));
@@ -963,18 +1019,20 @@ async function saveMissionEdit(){
   if(!m) return;
   const title = (document.getElementById('editMissionTitleInput').value||'').trim();
   const target = parseInt(document.getElementById('editMissionTargetInput').value,10);
-  const unit = (document.getElementById('editMissionUnitInput').value||'').trim() || '개';
+  const periodEl = document.querySelector('.edit-mission-period-pill.active-visit');
+  const period = periodEl ? periodEl.getAttribute('data-period') : 'monthly';
+  const unit = period==='daily' ? '일' : period==='weekly' ? '주' : ((document.getElementById('editMissionUnitInput').value||'').trim() || '개');
   const description = (document.getElementById('editMissionDescInput').value||'').trim();
   const proofTypeEl = document.querySelector('.edit-mission-proof-pill.active-visit');
   const proofType = proofTypeEl ? proofTypeEl.getAttribute('data-proof-type') : 'photo';
   const modeEl = document.querySelector('.edit-mission-mode-pill.active-visit');
-  const mode = modeEl ? modeEl.getAttribute('data-mode') : 'batch';
+  const mode = period!=='monthly' ? 'count' : (modeEl ? modeEl.getAttribute('data-mode') : 'batch');
   const minPhotos = proofType==='photo' ? (parseInt(document.getElementById('editMissionMinPhotosInput').value,10)||1) : 0;
   const minDurationSec = proofType==='audio' ? (parseInt(document.getElementById('editMissionMinDurationInput').value,10)||0) : 0;
   if(!title){ alert('미션 이름을 입력해주세요.'); return; }
-  if(!target || target<=0){ alert('목표 수량을 숫자로 입력해주세요.'); return; }
+  if(!target || target<=0){ alert(period==='monthly' ? '목표 수량을 숫자로 입력해주세요.' : '목표 일/주수를 숫자로 입력해주세요.'); return; }
   m.title = title; m.target = target; m.unit = unit; m.description = description;
-  m.proofType = proofType; m.minPhotos = minPhotos; m.minDurationSec = minDurationSec; m.mode = mode;
+  m.proofType = proofType; m.minPhotos = minPhotos; m.minDurationSec = minDurationSec; m.mode = mode; m.period = period;
   await saveMissionsAll(STATE.missions);
   closeMissionEditModal();
   render();
@@ -2060,21 +2118,50 @@ function bindEvents(){
   if(addMissionBtn) addMissionBtn.onclick = async ()=>{
     const title = (document.getElementById('missionTitleInput').value||'').trim();
     const target = parseInt(document.getElementById('missionTargetInput').value,10);
-    const unit = (document.getElementById('missionUnitInput').value||'').trim() || '개';
+    const periodEl = document.querySelector('.mission-period-pill.active-visit');
+    const period = periodEl ? periodEl.getAttribute('data-period') : 'monthly';
+    const unit = period==='daily' ? '일' : period==='weekly' ? '주' : ((document.getElementById('missionUnitInput').value||'').trim() || '개');
     const description = (document.getElementById('missionDescInput').value||'').trim();
     const proofTypeEl = document.querySelector('.mission-proof-pill.active-visit');
     const proofType = proofTypeEl ? proofTypeEl.getAttribute('data-proof-type') : 'photo';
     const modeEl = document.querySelector('.mission-mode-pill.active-visit');
-    const mode = modeEl ? modeEl.getAttribute('data-mode') : (proofType==='audio' ? 'count' : 'batch');
+    const mode = period!=='monthly' ? 'count' : (modeEl ? modeEl.getAttribute('data-mode') : (proofType==='audio' ? 'count' : 'batch'));
     const minPhotos = proofType==='photo' ? (parseInt(document.getElementById('missionMinPhotosInput').value,10)||1) : 0;
     const minDurationSec = proofType==='audio' ? (parseInt(document.getElementById('missionMinDurationInput').value,10)||0) : 0;
     if(!title){ alert('미션 이름을 입력해주세요.'); return; }
-    if(!target || target<=0){ alert('목표 수량을 숫자로 입력해주세요.'); return; }
-    const mission = { id: uid('mis'), title, target, unit, description, active:true, createdAt: Date.now(), proofType, minPhotos, minDurationSec, mode };
+    if(!target || target<=0){ alert(period==='monthly' ? '목표 수량을 숫자로 입력해주세요.' : '목표 일/주수를 숫자로 입력해주세요.'); return; }
+    const mission = { id: uid('mis'), title, target, unit, description, active:true, createdAt: Date.now(), proofType, minPhotos, minDurationSec, mode, period };
     STATE.missions.push(mission);
     await saveMissionsAll(STATE.missions);
     render();
   };
+  app.querySelectorAll('.mission-period-pill').forEach(p=>{
+    p.onclick = ()=>{
+      app.querySelectorAll('.mission-period-pill').forEach(x=>x.classList.remove('active-visit'));
+      p.classList.add('active-visit');
+      const period = p.getAttribute('data-period');
+      const targetLabel = document.getElementById('missionTargetLabel');
+      const unitField = document.getElementById('missionUnitField');
+      const modeField = document.getElementById('missionModeField');
+      const hint = document.getElementById('periodHint');
+      if(period==='daily'){
+        if(targetLabel) targetLabel.textContent = '목표 일수 (이번 달)';
+        if(unitField) unitField.style.display = 'none';
+        if(modeField) modeField.style.display = 'none';
+        if(hint) hint.textContent = '매일: 하루 1번 인증·승인되면 그날은 달성으로 카운트돼요. 이번 달 목표 일수를 채우면 완료돼요.';
+      }else if(period==='weekly'){
+        if(targetLabel) targetLabel.textContent = '목표 주수 (이번 달)';
+        if(unitField) unitField.style.display = 'none';
+        if(modeField) modeField.style.display = 'none';
+        if(hint) hint.textContent = '매주: 그 주에 1번 이상 인증·승인되면 그 주는 달성으로 카운트돼요. 이번 달 목표 주수를 채우면 완료돼요.';
+      }else{
+        if(targetLabel) targetLabel.textContent = '목표 수량';
+        if(unitField) unitField.style.display = '';
+        if(modeField) modeField.style.display = '';
+        if(hint) hint.textContent = '매월: 이번 달 동안 목표 수량을 채우면 완료돼요.';
+      }
+    };
+  });
   app.querySelectorAll('.mission-proof-pill').forEach(p=>{
     p.onclick = ()=>{
       app.querySelectorAll('.mission-proof-pill').forEach(x=>x.classList.remove('active-visit'));
