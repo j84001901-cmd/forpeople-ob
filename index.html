@@ -1164,16 +1164,29 @@ function renderActivityProgress(){
     </div>`;
   }
   const trainees = storeTrainees();
+  const activeMissions = STATE.missions.filter(m=>m.active);
   return `
   <div class="card">
     <h2>진행 현황</h2>
-    <div class="sub">이름을 누르면 미션별 상세 진행률을 볼 수 있어요.</div>
-    ${trainees.length===0 ? `<div class="empty">등록된 신입이 없습니다.</div>` : `
-    <div class="table-scroll"><table><thead><tr><th>이름</th><th>팀</th><th>완료 미션 수</th></tr></thead>
+    <div class="sub">이번 달 미션별 진행률이 바로 보여요. 이름(팀)을 누르면 상세 화면(보상 지급 처리 포함)으로 이동해요.</div>
+    ${trainees.length===0 ? `<div class="empty">등록된 신입이 없습니다.</div>` : activeMissions.length===0 ? `<div class="empty">등록된 미션이 없습니다.</div>` : `
+    <div class="table-scroll"><table><thead><tr>
+      <th>팀</th>
+      ${activeMissions.map(m=>`<th>${escapeHtml(m.title)}</th>`).join('')}
+      <th>완료</th>
+    </tr></thead>
     <tbody>
       ${trainees.map(t=>{
-        const doneCount = STATE.missions.filter(m=>missionProgress(m.id,t.id)>=m.target).length;
-        return `<tr data-open-activity-user="${t.id}" style="cursor:pointer;"><td>${t.name}</td><td>${t.team}</td><td class="muted" style="font-family:var(--mono);">${doneCount} / ${STATE.missions.length}</td></tr>`;
+        const doneCount = activeMissions.filter(m=>missionProgress(m.id,t.id)>=m.target).length;
+        return `<tr data-open-activity-user="${t.id}" style="cursor:pointer;">
+          <td>${escapeHtml(t.team)}</td>
+          ${activeMissions.map(m=>{
+            const prog = Math.min(missionProgress(m.id,t.id), m.target);
+            const done = prog>=m.target;
+            return `<td class="muted" style="font-family:var(--mono);white-space:nowrap;">${done?'🏆 ':''}${prog}/${m.target}${escapeHtml(m.unit)}</td>`;
+          }).join('')}
+          <td class="muted" style="font-family:var(--mono);">${doneCount} / ${activeMissions.length}</td>
+        </tr>`;
       }).join('')}
     </tbody></table></div>`}
   </div>`;
